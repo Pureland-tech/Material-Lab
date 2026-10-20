@@ -1,0 +1,31 @@
+{
+  "engineVersion": "1.0.0",
+  "size": {
+    "width": 160,
+    "height": 100,
+    "pixelRatio": 0.1
+  },
+  "hashes": {
+    "glass-aurora-panel": "0ff467f3",
+    "glass-clear-haze": "17d0944e",
+    "glass-smoked": "a13b5900",
+    "grain-soft-ui": "90c6a2cc",
+    "grain-night-film": "2c92121a",
+    "grain-sunwashed": "1e45eace",
+    "paper-warm-recycled": "e8cfbd4b",
+    "paper-modern-white": "245db264",
+    "paper-vintage-kraft": "0381e6b7",
+    "metal-brushed-silver": "63153b0d",
+    "metal-champagne-gold": "d06f6276",
+    "metal-anodized-copper": "c6bb038c",
+    "fabric-natural-linen": "a626bb20",
+    "fabric-indigo-twill": "8380cbe1",
+    "fabric-canvas-basket": "8fa97ccb",
+    "noise-fine-mono": "86e8fa35",
+    "noise-cellular-mist": "de0f804f",
+    "noise-topo-ridges": "be1cffd8",
+    "liquid-ink-marble": "ce47630d",
+    "liquid-calm-flow": "72caf0a6",
+    "liquid-iridescent": "232722b2"
+  }
+}

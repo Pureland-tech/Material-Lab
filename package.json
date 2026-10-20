@@ -1,0 +1,28 @@
+{
+  "name": "material-lab",
+  "private": true,
+  "description": "Material Lab — procedural texture generator (Pureland · Visual Generation)",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @material-lab/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "golden:update": "npm run golden:update --workspace @material-lab/engine",
+    "render:presets": "tsx scripts/render-presets.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.5"
+  }
+}
