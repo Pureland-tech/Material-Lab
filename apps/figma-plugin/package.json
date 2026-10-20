@@ -1,0 +1,19 @@
+{
+  "name": "@material-lab/figma-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Material Lab Figma plugin — technical prototype for inserting rendered textures.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@material-lab/engine": "*"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.120.0",
+    "esbuild": "^0.25.0"
+  }
+}

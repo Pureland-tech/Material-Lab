@@ -1,0 +1,15 @@
+{
+  "name": "@material-lab/engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Platform-neutral recipe model, validation and deterministic procedural texture renderer for Material Lab.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "golden:update": "UPDATE_GOLDEN=1 vitest run test/golden.test.ts"
+  }
+}
