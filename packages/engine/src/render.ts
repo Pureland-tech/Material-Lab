@@ -60,7 +60,7 @@ export interface RenderResult {
   /** Rows in `data` (the full height, or the requested row range). */
   height: number;
   /** Straight (non-premultiplied) RGBA, 8 bits per channel, like ImageData. */
-  data: Uint8ClampedArray;
+  data: Uint8ClampedArray<ArrayBuffer>;
   warnings: RenderWarning[];
 }
 

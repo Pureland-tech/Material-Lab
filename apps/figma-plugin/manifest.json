@@ -1,0 +1,13 @@
+{
+  "name": "Material Lab",
+  "id": "material-lab-prototype",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "reasoning": "Textures are rendered locally inside the plugin; nothing is uploaded."
+  }
+}
