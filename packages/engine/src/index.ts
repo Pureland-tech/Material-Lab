@@ -27,3 +27,4 @@ export * from './gif';
 export * from './animation';
 export { loopOffset } from './field';
 export { axes, frame, type Tile, type SeamlessReport } from './field';
+export * from './assistant';

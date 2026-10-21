@@ -23,5 +23,5 @@ jobs:
       # Includes golden-image hashes and the schema migration tests.
       - name: Test
         run: npm test
-      - name: Build web app and Figma plugin
+      - name: Build web app, API and Figma plugin
         run: npm run build
