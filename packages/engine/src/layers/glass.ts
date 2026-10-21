@@ -1,7 +1,6 @@
 import { direction, smoothstep } from '../math';
-import { fbm, gradientNoise } from '../noise';
+import { axes, fbmSampler, loopOffset, sampler } from '../field';
 import type { LayerDefinition } from '../params';
-import { hash01 } from '../random';
 import { num, pixelGrid, rgb } from './util';
 
 const MAX_REFRACTION_PX = 16;
@@ -24,22 +23,31 @@ function refractionPx(refraction: number, pixelRatio: number): number {
  */
 const FIXED = 65535;
 
+/** Index into [0, n): clamp at the edges, or wrap around for seamless tiles. */
+function edgeIndex(i: number, n: number, wrap: boolean): number {
+  if (wrap) {
+    const r = i % n;
+    return r < 0 ? r + n : r;
+  }
+  return i < 0 ? 0 : i >= n ? n - 1 : i;
+}
+
 /**
- * Box-blur rows horizontally (fixed-point RGBA), clamping at the image edges.
- * Sums are exact integers; dividing by a constant and rounding is the same
- * arithmetic for every pixel, so results never depend on band boundaries.
+ * Box-blur rows horizontally (fixed-point RGBA), clamping at the image edges
+ * (or wrapping for seamless tiles). Sums are exact integers; dividing by a
+ * constant and rounding is the same arithmetic for every pixel, so results
+ * never depend on band boundaries.
  */
-function blurRows(src: Int32Array, dst: Int32Array, w: number, rows: number, r: number): void {
+function blurRows(src: Int32Array, dst: Int32Array, w: number, rows: number, r: number, wrap: boolean): void {
   const inv = 1 / (2 * r + 1);
-  const last = w - 1;
   for (let y = 0; y < rows; y++) {
     const row = y * w * 4;
-    let a0 = (src[row] as number) * (r + 1);
-    let a1 = (src[row + 1] as number) * (r + 1);
-    let a2 = (src[row + 2] as number) * (r + 1);
-    let a3 = (src[row + 3] as number) * (r + 1);
-    for (let k = 1; k <= r; k++) {
-      const i = row + (k < last ? k : last) * 4;
+    let a0 = 0;
+    let a1 = 0;
+    let a2 = 0;
+    let a3 = 0;
+    for (let k = -r; k <= r; k++) {
+      const i = row + edgeIndex(k, w, wrap) * 4;
       a0 += src[i] as number;
       a1 += src[i + 1] as number;
       a2 += src[i + 2] as number;
@@ -51,8 +59,8 @@ function blurRows(src: Int32Array, dst: Int32Array, w: number, rows: number, r: 
       dst[o + 1] = Math.floor(a1 * inv + 0.5);
       dst[o + 2] = Math.floor(a2 * inv + 0.5);
       dst[o + 3] = Math.floor(a3 * inv + 0.5);
-      const add = row + (x + r + 1 < last ? x + r + 1 : last) * 4;
-      const sub = row + (x - r > 0 ? x - r : 0) * 4;
+      const add = row + edgeIndex(x + r + 1, w, wrap) * 4;
+      const sub = row + edgeIndex(x - r, w, wrap) * 4;
       a0 += (src[add] as number) - (src[sub] as number);
       a1 += (src[add + 1] as number) - (src[sub + 1] as number);
       a2 += (src[add + 2] as number) - (src[sub + 2] as number);
@@ -63,22 +71,21 @@ function blurRows(src: Int32Array, dst: Int32Array, w: number, rows: number, r: 
 
 /**
  * Box-blur columns, sweeping rows top to bottom with one running sum per
- * column (cache-friendly). The buffer's first/last rows are treated as edges.
+ * column (cache-friendly). The buffer's first/last rows are treated as edges,
+ * or wrap around for seamless tiles.
  */
-function blurCols(src: Int32Array, dst: Int32Array, w: number, rows: number, r: number): void {
+function blurCols(src: Int32Array, dst: Int32Array, w: number, rows: number, r: number, wrap: boolean): void {
   const inv = 1 / (2 * r + 1);
-  const last = rows - 1;
   const stride = w * 4;
   const acc = new Float64Array(stride);
-  for (let i = 0; i < stride; i++) acc[i] = (src[i] as number) * (r + 1);
-  for (let k = 1; k <= r; k++) {
-    const off = (k < last ? k : last) * stride;
+  for (let k = -r; k <= r; k++) {
+    const off = edgeIndex(k, rows, wrap) * stride;
     for (let i = 0; i < stride; i++) acc[i] = (acc[i] as number) + (src[off + i] as number);
   }
   for (let y = 0; y < rows; y++) {
     const o = y * stride;
-    const add = (y + r + 1 < last ? y + r + 1 : last) * stride;
-    const sub = (y - r > 0 ? y - r : 0) * stride;
+    const add = edgeIndex(y + r + 1, rows, wrap) * stride;
+    const sub = edgeIndex(y - r, rows, wrap) * stride;
     for (let i = 0; i < stride; i++) {
       const a = acc[i] as number;
       dst[o + i] = Math.floor(a * inv + 0.5);
@@ -88,17 +95,17 @@ function blurCols(src: Int32Array, dst: Int32Array, w: number, rows: number, r: 
 }
 
 /** Frost the layers beneath: three box passes each way ≈ Gaussian blur. */
-function frost(below: Float32Array, w: number, rows: number, r: number): Float32Array {
+function frost(below: Float32Array, w: number, rows: number, r: number, wrap: boolean): Float32Array {
   const a = new Int32Array(below.length);
   for (let i = 0; i < below.length; i++) a[i] = Math.round((below[i] as number) * FIXED);
   if (r > 0) {
     const b = new Int32Array(a.length);
-    blurRows(a, b, w, rows, r);
-    blurRows(b, a, w, rows, r);
-    blurRows(a, b, w, rows, r);
-    blurCols(b, a, w, rows, r);
-    blurCols(a, b, w, rows, r);
-    blurCols(b, a, w, rows, r);
+    blurRows(a, b, w, rows, r, wrap);
+    blurRows(b, a, w, rows, r, wrap);
+    blurRows(a, b, w, rows, r, wrap);
+    blurCols(b, a, w, rows, r, wrap);
+    blurCols(a, b, w, rows, r, wrap);
+    blurCols(b, a, w, rows, r, wrap);
   }
   const out = new Float32Array(a.length);
   for (let i = 0; i < a.length; i++) out[i] = (a[i] as number) / FIXED;
@@ -283,15 +290,29 @@ export const glassLayer: LayerDefinition = {
   margin(params, pixelRatio) {
     return 3 * boxRadius(num(params, 'frost'), pixelRatio) + refractionPx(num(params, 'refraction'), pixelRatio) + 2;
   },
+  seamless: (params) => {
+    const seams: string[] = [];
+    if (num(params, 'inset') > 0) seams.push('An inset glass panel sits inside the canvas edges, so tiles show its border.');
+    if (num(params, 'edgeHighlight') > 0) seams.push('Edge highlight follows the canvas edges and shows as lines between tiles.');
+    if (num(params, 'sheen') > 0) seams.push('Sheen brightens one side of the canvas, so neighbouring tiles will not match.');
+    return { seams, notes: [] };
+  },
+  makeSeamless: (params) => ({ ...params, inset: 0, edgeHighlight: 0, sheen: 0 }),
+  motion: 'Refraction ripples in a loop',
   render(ctx, out) {
-    const { width, height, y0, y1, params, seed, pixelRatio } = ctx;
+    const { width, height, y0, y1, params, seed, pixelRatio, tile } = ctx;
     const below = ctx.below;
     if (!below) throw new Error('Glass layer requires the layers beneath it');
     const grid = pixelGrid(width, height, pixelRatio);
     const rows = below.y1 - below.y0;
 
     // Frost: blur everything beneath (with margin rows so band seams match).
-    const blurred = frost(below.data, width, rows, boxRadius(num(params, 'frost'), pixelRatio));
+    // Seamless tiles get the full image as context and blur around the edges.
+    const wrap = tile !== null;
+    const blurred = frost(below.data, width, rows, boxRadius(num(params, 'frost'), pixelRatio), wrap);
+    const refraction = fbmSampler('gradient', axes(tile, 90), 2);
+    const ripple = loopOffset(ctx.time, ctx.motion * 60);
+    const glassGrain = sampler('white', axes(tile, num(params, 'grainScale')));
 
     const tint = rgb(params, 'tint');
     const tintStrength = num(params, 'tintStrength');
@@ -334,8 +355,8 @@ export const glassLayer: LayerDefinition = {
         for (let i = 0; i < gridW; i++) {
           const glx = i * REFRACTION_STEP * grid.inv;
           const k = (j * gridW + i) * 2;
-          offsets[k] = (fbm(gradientNoise, glx / 90, gly / 90, seed + 1, 2) - 0.5) * 2 * refr;
-          offsets[k + 1] = (fbm(gradientNoise, glx / 90, gly / 90, seed + 2, 2) - 0.5) * 2 * refr;
+          offsets[k] = (refraction(glx + ripple.x, gly + ripple.y, seed + 1) - 0.5) * 2 * refr;
+          offsets[k + 1] = (refraction(glx + ripple.x, gly + ripple.y, seed + 2) - 0.5) * 2 * refr;
         }
       }
     }
@@ -388,17 +409,37 @@ export const glassLayer: LayerDefinition = {
           sx += (offsets[g00] as number) * w0 + (offsets[g10] as number) * w1 + (offsets[g01] as number) * w2 + (offsets[g11] as number) * w3;
           sy += (offsets[g00 + 1] as number) * w0 + (offsets[g10 + 1] as number) * w1 + (offsets[g01 + 1] as number) * w2 + (offsets[g11 + 1] as number) * w3;
         }
-        // Bilinear sample of the frosted buffer (device px relative to below.y0).
-        const fx = sx < 0 ? 0 : sx > lastCol ? lastCol : sx;
-        const fy = sy < 0 ? 0 : sy > lastRow ? lastRow : sy;
-        const x0 = Math.floor(fx);
-        const yy0 = Math.floor(fy);
-        const tx = fx - x0;
-        const ty = fy - yy0;
+        // Bilinear sample of the frosted buffer (device px relative to below.y0),
+        // clamped at the edges, or wrapping around for seamless tiles.
+        let x0: number;
+        let yy0: number;
+        let x1: number;
+        let yy1: number;
+        let tx: number;
+        let ty: number;
+        if (wrap) {
+          const fx = Math.floor(sx);
+          const fy = Math.floor(sy);
+          tx = sx - fx;
+          ty = sy - fy;
+          x0 = ((fx % width) + width) % width;
+          yy0 = ((fy % rows) + rows) % rows;
+          x1 = x0 + 1 < width ? x0 + 1 : 0;
+          yy1 = yy0 + 1 < rows ? yy0 + 1 : 0;
+        } else {
+          const fx = sx < 0 ? 0 : sx > lastCol ? lastCol : sx;
+          const fy = sy < 0 ? 0 : sy > lastRow ? lastRow : sy;
+          x0 = Math.floor(fx);
+          yy0 = Math.floor(fy);
+          tx = fx - x0;
+          ty = fy - yy0;
+          x1 = x0 < lastCol ? x0 + 1 : x0;
+          yy1 = yy0 < lastRow ? yy0 + 1 : yy0;
+        }
         const i00 = (yy0 * width + x0) * 4;
-        const i10 = i00 + (x0 < lastCol ? 4 : 0);
-        const i01 = i00 + (yy0 < lastRow ? width * 4 : 0);
-        const i11 = i01 + (x0 < lastCol ? 4 : 0);
+        const i10 = (yy0 * width + x1) * 4;
+        const i01 = (yy1 * width + x0) * 4;
+        const i11 = (yy1 * width + x1) * 4;
         const w00 = (1 - tx) * (1 - ty);
         const w10 = tx * (1 - ty);
         const w01 = (1 - tx) * ty;
@@ -457,7 +498,7 @@ export const glassLayer: LayerDefinition = {
         cb += (1 - cb) * lift;
 
         if (grainAmount > 0) {
-          const g = (hash01(Math.floor(lx / grainScale), Math.floor(ly / grainScale), seed + 5) - 0.5) * grainAmount;
+          const g = (glassGrain(lx, ly, seed + 5) - 0.5) * grainAmount;
           cr += g;
           cg += g;
           cb += g;

@@ -351,8 +351,8 @@ export function validateRecipe(input: unknown): ValidationResult {
 
   // Export defaults.
   const exIn = isRecord(data.exportDefaults) ? data.exportDefaults : {};
-  const format: ExportFormat = exIn.format === 'jpeg' ? 'jpeg' : 'png';
-  if (exIn.format !== undefined && exIn.format !== 'png' && exIn.format !== 'jpeg') {
+  const format: ExportFormat = exIn.format === 'jpeg' || exIn.format === 'svg' ? exIn.format : 'png';
+  if (exIn.format !== undefined && exIn.format !== 'png' && exIn.format !== 'jpeg' && exIn.format !== 'svg') {
     issues.warn('exportDefaults.format', 'invalid-value', 'Unsupported export format; PNG used.');
   }
   let scale = 1;

@@ -45,14 +45,15 @@ export interface RecipeCanvas {
   transparentBackground: boolean;
 }
 
-export type ExportFormat = 'png' | 'jpeg';
+export const EXPORT_FORMATS = ['png', 'jpeg', 'svg'] as const;
+export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 export interface RecipeExportDefaults {
   format: ExportFormat;
   width: number;
   height: number;
   scale: number;
-  /** Seamless tiling is a P1 feature; stored for forward compatibility. */
+  /** Render as a seamless tile (see seamless.ts). */
   seamless: boolean;
 }
 

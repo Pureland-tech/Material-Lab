@@ -1,3 +1,4 @@
+import type { SeamlessReport, Tile } from './field';
 import type { BlendMode, FamilyId, LayerParameters, LayerType, ParamValue } from './types';
 
 /** Properties panel sections, in display order. */
@@ -88,6 +89,19 @@ export interface LayerRenderContext {
   params: LayerParameters;
   /** Content beneath this layer; only provided to layers that declare a margin. */
   below: BelowBuffer | null;
+  /**
+   * Seamless mode: the logical tile size the texture must repeat with, or
+   * null for a plain render. In seamless mode `below` always holds the full
+   * image height so context can wrap around the tile edges.
+   */
+  tile: Tile | null;
+  /**
+   * Animation: position in a seamless loop (0–1), or null for a still image.
+   * Layers that move must return to the same state at time 1 as at time 0.
+   */
+  time: number | null;
+  /** Animation strength, 0–1 (how far animated layers move per loop). */
+  motion: number;
 }
 
 export interface LayerDefinition {
@@ -110,6 +124,15 @@ export interface LayerDefinition {
    * the band. Layers that return > 0 receive `below`.
    */
   margin?(params: LayerParameters, pixelRatio: number): number;
+  /**
+   * How this layer behaves as a seamless tile: settings that would show seams
+   * at the tile edges, and settings approximated so the tile repeats.
+   */
+  seamless(params: LayerParameters): SeamlessReport;
+  /** Short description of how this layer moves in animated exports; omit for static layers. */
+  motion?: string;
+  /** Parameters adjusted to remove everything `seamless` reports as a seam. */
+  makeSeamless?(params: LayerParameters): LayerParameters;
   /** Write straight-alpha RGBA (0–1) for rows [y0, y1) into `out`. */
   render(ctx: LayerRenderContext, out: Float32Array): void;
 }

@@ -6,3 +6,9 @@ coverage/
 .vite/
 /out/
 *.tsbuildinfo
+
+# Local API database
+apps/api/data/
+*.db
+*.db-wal
+*.db-shm

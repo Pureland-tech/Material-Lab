@@ -1,4 +1,4 @@
-import type { ExportFormat } from '@material-lab/engine';
+import type { ExportFormat, Palette } from '@material-lab/engine';
 import { Observable, useObservable } from './store';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -12,10 +12,22 @@ export interface ExportDefaultsSetting {
   scale: number;
 }
 
+export type ColorFormat = 'hex' | 'rgb';
+
 export interface Settings {
   theme: Theme;
   previewQuality: PreviewQuality;
   exportDefaults: ExportDefaultsSetting;
+  /** How color fields show and accept values. */
+  colorFormat: ColorFormat;
+  /** Palettes saved on this device for recoloring. */
+  palettes: Palette[];
+  /** Account server; null uses the build's VITE_API_URL (if any). */
+  serverUrl: string | null;
+  /** Opt-in: sync saved recipes to the signed-in account. */
+  cloudSync: boolean;
+  /** Opt-in: allow sending texture descriptions to the AI service without asking each time. */
+  aiConsent: boolean;
 }
 
 /** Maximum preview pixels per quality level. */
@@ -35,6 +47,11 @@ const DEFAULTS: Settings = {
   theme: 'system',
   previewQuality: 'standard',
   exportDefaults: { format: 'png', width: null, height: null, scale: 1 },
+  colorFormat: 'hex',
+  palettes: [],
+  serverUrl: null,
+  cloudSync: false,
+  aiConsent: false,
 };
 
 const KEY = 'material-lab:settings';
@@ -52,8 +69,18 @@ function read(): Settings {
     return {
       theme,
       previewQuality,
+      colorFormat: parsed.colorFormat === 'rgb' ? 'rgb' : 'hex',
+      serverUrl: typeof parsed.serverUrl === 'string' && /^https?:\/\/[^\s]+$/.test(parsed.serverUrl) ? parsed.serverUrl.replace(/\/+$/, '') : null,
+      cloudSync: parsed.cloudSync === true,
+      aiConsent: parsed.aiConsent === true,
+      palettes: Array.isArray(parsed.palettes)
+        ? parsed.palettes
+            .filter((p): p is Palette => typeof p?.id === 'string' && typeof p?.name === 'string' && Array.isArray(p?.colors))
+            .map((p) => ({ id: p.id, name: p.name.slice(0, 40), colors: p.colors.filter((c) => /^#[0-9A-F]{6}$/i.test(c)).slice(0, 8) }))
+            .slice(0, 50)
+        : [],
       exportDefaults: {
-        format: ex.format === 'jpeg' ? 'jpeg' : 'png',
+        format: ex.format === 'jpeg' || ex.format === 'svg' ? ex.format : 'png',
         width: side(ex.width),
         height: side(ex.height),
         scale: [1, 2, 3, 4].includes(ex.scale) ? ex.scale : 1,

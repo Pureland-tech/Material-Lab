@@ -1,0 +1,24 @@
+{
+  "name": "@material-lab/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Material Lab account API: sign-in, recipe sync, share links, teams, entitlements and the optional AI recipe assistant.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --disable-warning=ExperimentalWarning src/main.ts",
+    "start": "node --disable-warning=ExperimentalWarning dist/main.js",
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.0.0",
+    "@material-lab/engine": "*"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  }
+}

@@ -17,6 +17,12 @@ export interface ChunkRequest {
   transparent: boolean;
   background: string;
   rows: { start: number; end: number };
+  /** Render as a seamless tile (the whole output is one tile). */
+  tile: boolean;
+  /** Animation frame: loop position 0–1, or null for a still. */
+  time: number | null;
+  /** Animation strength 0–1. */
+  motion: number;
   layerCount?: number;
   below?: PrecomputedComposite;
 }

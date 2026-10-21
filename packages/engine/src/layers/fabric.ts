@@ -1,5 +1,6 @@
-import { direction, smoothstep } from '../math';
-import { fbm, gradientNoise, valueNoise } from '../noise';
+import { axes, axesMultiple, fbmSampler, frame, sampler, snap, transpose, wrapCell } from '../field';
+import { smoothstep } from '../math';
+import { valueNoise, valueNoiseTiled } from '../noise';
 import type { LayerDefinition } from '../params';
 import { hash1 } from '../random';
 import { num, pixelGrid, rgb, str } from './util';
@@ -130,13 +131,18 @@ export const fabricLayer: LayerDefinition = {
     },
   ],
   coversCanvas: () => true,
+  seamless: (params) => ({
+    seams: [],
+    notes: num(params, 'rotation') % 90 === 0 ? [] : ['Rotation rounds to the nearest 90° so the weave repeats.'],
+  }),
   render(ctx, out) {
-    const { width, y0, y1, params, seed, pixelRatio } = ctx;
+    const { width, y0, y1, params, seed, pixelRatio, tile } = ctx;
     const grid = pixelGrid(width, ctx.height, pixelRatio);
     const weave = str(params, 'weave') as Weave;
     const s = num(params, 'threadScale');
     const gap = (1 - num(params, 'threadDensity')) * 0.45;
-    const rot = direction(num(params, 'rotation'));
+    const f = frame(num(params, 'rotation'), tile);
+    const rot = f.d;
     const warpColor = rgb(params, 'warpColor');
     const weftColor = rgb(params, 'weftColor');
     const colorVar = num(params, 'colorVariation') * 0.35;
@@ -144,10 +150,30 @@ export const fabricLayer: LayerDefinition = {
     const roughness = num(params, 'roughness');
     const depth = 0.35 + num(params, 'contrast') * 0.9;
     const linen = weave === 'linen';
-    // Supersample when threads are only a few device pixels wide to avoid moiré.
+
+    // Thread grid: in seamless mode a whole number of weave repeats fits the tile.
+    const threads = axesMultiple(f.tile, s, s, weave === 'twill' || weave === 'basket' ? 4 : 2);
+    const nA = threads.px;
+    const nB = threads.py;
+    // Noise along threads, snapped to whole periods across the tile.
+    const along6A = snap(nA ? nA : null, 6);
+    const along6B = snap(nB ? nB : null, 6);
+    const along12A = snap(nA ? nA * 1.2 : null, 1);
+    const along12B = snap(nB ? nB * 1.2 : null, 1);
+    const k12A = nA ? along12A.period / nA : 1.2;
+    const k12B = nB ? along12B.period / nB : 1.2;
+    const wanderA = sampler('value', axes(transpose(f.tile), s * 9, s * 30));
+    const wanderC = sampler('value', axes(f.tile, s * 9, s * 30));
+    const unevenness = fbmSampler('gradient', axes(tile, 160), 3);
+    // Value noise that repeats every `py` units along y (and never along x).
+    const NO_WRAP = 1 << 30;
+    const lineNoise = (x: number, y: number, sd: number, px: number, py: number) =>
+      px || py ? valueNoiseTiled(x, y, sd, px || NO_WRAP, py || NO_WRAP) : valueNoise(x, y, sd);
+
     // Below ~2 device px per thread the weave cannot be resolved; fade its
     // shading toward the average so small previews show color, not moiré.
     const detail = smoothstep(0.9, 2.6, s * pixelRatio);
+    // Supersample when threads are only a few device pixels wide to avoid moiré.
     const ss = detail > 0 && s * pixelRatio < 7 ? 2 : 1;
     const ssStep = grid.inv / ss;
     const ssOffset = -grid.inv / 2 + ssStep / 2;
@@ -176,9 +202,9 @@ export const fabricLayer: LayerDefinition = {
         const pa = px * rot.x + py * rot.y;
         const pc = -px * rot.y + py * rot.x;
         // Threads wander slightly.
-        const wanderA = (valueNoise(pc / (s * 9), pa / (s * 30), seed + 1) - 0.5) * s * roughness * 0.5;
-        const wanderC = (valueNoise(pa / (s * 9), pc / (s * 30), seed + 2) - 0.5) * s * roughness * 0.5;
-        const unevenness = 1 + (fbm(gradientNoise, px / 160, py / 160, seed + 11, 3) - 0.5) * roughness * 0.3;
+        const wa = (wanderA(pc, pa, seed + 1) - 0.5) * s * roughness * 0.5;
+        const wc = (wanderC(pa, pc, seed + 2) - 0.5) * s * roughness * 0.5;
+        const uneven = 1 + (unevenness(px, py, seed + 11) - 0.5) * roughness * 0.3;
         let r = 0;
         let g = 0;
         let b = 0;
@@ -186,12 +212,14 @@ export const fabricLayer: LayerDefinition = {
           for (let sx = 0; sx < ss; sx++) {
             const lx = px + ssOffset + sx * ssStep;
             const ly = py + ssOffset + sy * ssStep;
-            const a = lx * rot.x + ly * rot.y + wanderA;
-            const c = -lx * rot.y + ly * rot.x + wanderC;
-            const fi = a / s;
-            const fj = c / s;
+            const a = lx * rot.x + ly * rot.y + wa;
+            const c = -lx * rot.y + ly * rot.x + wc;
+            const fi = a * threads.kx;
+            const fj = c * threads.ky;
             const ci = Math.floor(fi);
             const cj = Math.floor(fj);
+            const ciw = wrapCell(ci, nA);
+            const cjw = wrapCell(cj, nB);
             const fa = fi - ci;
             const fb = fj - cj;
 
@@ -199,8 +227,8 @@ export const fabricLayer: LayerDefinition = {
             let weftGap = gap / 2;
             if (linen) {
               // Irregular thread thickness (slubs) for linen.
-              warpGap = Math.max(0, gap / 2 + (hash1(ci, seed + 3) - 0.5) * 0.18 + (valueNoise(ci * 7.13, fj / 6, seed + 4) - 0.5) * 0.14);
-              weftGap = Math.max(0, gap / 2 + (hash1(cj, seed + 5) - 0.5) * 0.18 + (valueNoise(fi / 6, cj * 7.13, seed + 6) - 0.5) * 0.14);
+              warpGap = Math.max(0, gap / 2 + (hash1(ciw, seed + 3) - 0.5) * 0.18 + (lineNoise(ciw * 7.13, fj * along6B.k, seed + 4, 0, along6B.period) - 0.5) * 0.14);
+              weftGap = Math.max(0, gap / 2 + (hash1(cjw, seed + 5) - 0.5) * 0.18 + (lineNoise(fi * along6A.k, cjw * 7.13, seed + 6, along6A.period, 0) - 0.5) * 0.14);
             }
 
             const warpTop = warpOnTop(weave, ci, cj);
@@ -232,13 +260,13 @@ export const fabricLayer: LayerDefinition = {
             } else {
               // Fibers run along the thread; per-thread color variation.
               const fiber = isWarp
-                ? valueNoise(fa * 6, fj * 1.2, seed + 7 + ci * 13)
-                : valueNoise(fi * 1.2, fb * 6, seed + 8 + cj * 13);
+                ? lineNoise(fa * 6, fj * k12B, seed + 7 + ciw * 13, 0, along12B.period)
+                : lineNoise(fi * k12A, fb * 6, seed + 8 + cjw * 13, along12A.period, 0);
               shade *= 1 + (fiber - 0.5) * fiberVar;
-              tone += (hash1(isWarp ? ci : cj, seed + (isWarp ? 9 : 10)) - 0.5) * colorVar;
+              tone += (hash1(isWarp ? ciw : cjw, seed + (isWarp ? 9 : 10)) - 0.5) * colorVar;
             }
             shade = 1 + (shade - 0.82) * depth * detail;
-            const k = shade * tone * unevenness;
+            const k = shade * tone * uneven;
             r += base[0] * k;
             g += base[1] * k;
             b += base[2] * k;

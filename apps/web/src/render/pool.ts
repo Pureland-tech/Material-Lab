@@ -17,6 +17,12 @@ export interface FrameRequest {
   pixelRatio: number;
   transparent: boolean;
   background: string;
+  /** Render as a seamless tile. */
+  tile?: boolean;
+  /** Animation frame: loop position 0–1. Omit for a still. */
+  time?: number;
+  /** Animation strength 0–1 (default 0.5). */
+  motion?: number;
 }
 
 export interface FrameResult {
@@ -153,7 +159,8 @@ export class RenderPool {
     const start = performance.now();
     const job: Job = { cancelled: false, priority: options.priority };
     const { width, height } = frame;
-    const split = findContextSplit(frame.recipe, frame.pixelRatio);
+    const tile = frame.tile === true;
+    const split = findContextSplit(frame.recipe, frame.pixelRatio, { tile, height });
     const twoPhase = split !== null && width * height * 16 <= TWO_PHASE_BUDGET_BYTES;
     const base = {
       type: 'render' as const,
@@ -163,6 +170,9 @@ export class RenderPool {
       pixelRatio: frame.pixelRatio,
       transparent: frame.transparent,
       background: frame.background,
+      tile,
+      time: frame.time ?? null,
+      motion: frame.motion ?? 0.5,
     };
 
     const onAbort = () => this.cancelJob(job);

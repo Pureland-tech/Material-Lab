@@ -1,12 +1,13 @@
 import type { RGB } from '../color';
+import { axes, frame, sampler, unitFbm, wrapCell } from '../field';
 import { direction, smoothWave, smoothstep } from '../math';
-import { fbm, gradientNoise, valueNoise } from '../noise';
 import type { LayerDefinition } from '../params';
 import { hash01, hash2 } from '../random';
 import { hexToRgb } from '../color';
 import { num, pixelGrid, rgb, str } from './util';
 
-const METALS: Record<string, string> = {
+/** Base color of each metal preset. */
+export const METAL_COLORS: Record<string, string> = {
   silver: '#C4C9CF',
   gold: '#D8B25C',
   'rose-gold': '#D9A08F',
@@ -159,11 +160,20 @@ export const metallicLayer: LayerDefinition = {
     },
   ],
   coversCanvas: () => true,
+  seamless: (params) => {
+    const notes: string[] = [];
+    if (num(params, 'brushAngle') % 90 !== 0) notes.push('Brush direction rounds to the nearest 90° so the tile repeats.');
+    notes.push('Reflection bands snap to an angle and count that repeat across the tile, without the overall light-to-dark gradient.');
+    return { seams: [], notes };
+  },
+  motion: 'Highlights sweep across in a loop',
   render(ctx, out) {
-    const { width, y0, y1, params, seed } = ctx;
+    const { width, y0, y1, params, seed, tile } = ctx;
+    // Animation: bands move a whole number of cycles per loop, so it loops cleanly.
+    const sweep = ctx.time !== null && ctx.motion > 0 ? ctx.time * Math.max(1, Math.round(ctx.motion * 3)) : 0;
     const grid = pixelGrid(width, ctx.height, ctx.pixelRatio);
     const metal = str(params, 'metal');
-    const base: RGB = metal === 'custom' ? rgb(params, 'tint') : hexToRgb(METALS[metal] ?? METALS.silver!);
+    const base: RGB = metal === 'custom' ? rgb(params, 'tint') : hexToRgb(METAL_COLORS[metal] ?? METAL_COLORS.silver!);
     // Shading ramp keeps a metallic look for any alloy color: deep shadow,
     // the alloy itself, and a near-white highlight.
     const dark: RGB = [base[0] * 0.2, base[1] * 0.2, base[2] * 0.22];
@@ -174,13 +184,28 @@ export const metallicLayer: LayerDefinition = {
     const bands = num(params, 'bands');
     const roughness = num(params, 'roughness');
     const contrast = 0.55 + num(params, 'contrast') * 1.1;
-    const brush = direction(num(params, 'brushAngle'));
+    const brushFrame = frame(num(params, 'brushAngle'), tile);
+    const brush = brushFrame.d;
     const brushStrength = num(params, 'brushStrength');
     const brushLen = 30 + num(params, 'brushScale') * 220;
     const brushWidth = 0.6 + num(params, 'brushScale') * 1.4;
     const scratches = num(params, 'scratches');
     const aa = grid.inv * 0.75;
-    const scratchCell = 90;
+    const scratchCells = axes(tile, 90);
+    const cellW = 1 / scratchCells.kx;
+    const cellH = 1 / scratchCells.ky;
+    const brushCoarse = sampler('value', axes(brushFrame.tile, brushLen, brushWidth));
+    const brushFine = sampler('value', axes(brushFrame.tile, brushLen * 0.35, brushWidth * 2.6));
+    const micro = sampler('white', axes(tile, 1 / 1.5));
+    // Seamless: the reflection pattern needs a whole number of bands along
+    // each axis; warp noise repeats every tile (2 noise units).
+    const warpNoise = unitFbm('gradient', tile ? { kx: 2, ky: 2, px: 2, py: 2 } : axes(null, 1 / 1.6), 2);
+    const warpScale = tile ? 2 : 1.6;
+    let ka = Math.round(hl.x * bands);
+    const kb = Math.round(hl.y * bands);
+    if (ka === 0 && kb === 0) ka = 1;
+    const spanW = tile ? tile.width : grid.logicalWidth;
+    const spanH = tile ? tile.height : grid.logicalHeight;
 
     // Specular peaks: narrow for polished metal, wider and softer when rough.
     const peak = 0.06 + hlWidth * 0.32 + roughness * 0.18;
@@ -190,18 +215,20 @@ export const metallicLayer: LayerDefinition = {
     let i = 0;
     for (let y = y0; y < y1; y++) {
       const ly = (y + 0.5) * grid.inv;
-      const v = ly / grid.logicalHeight - 0.5;
+      const v = ly / spanH - 0.5;
       for (let x = 0; x < width; x++, i += 4) {
         const lx = (x + 0.5) * grid.inv;
-        const u = lx / grid.logicalWidth - 0.5;
+        const u = lx / spanW - 0.5;
 
         // Position across the reflection, gently warped so bands are not ruler-straight.
-        let t = u * hl.x + v * hl.y;
-        t += (fbm(gradientNoise, u * 1.6, v * 1.6, seed + 3, 2) - 0.5) * warpAmount;
+        const warp = (warpNoise(u * warpScale, v * warpScale, seed + 3) - 0.5) * warpAmount;
+        const across = tile ? 0 : u * hl.x + v * hl.y;
+        const t = across + warp;
+        const phase = tile ? u * ka + v * kb + warp * bands : t * bands;
 
         // Broad environment gradient, soft reflection bands, a dark band
         // between reflections, and narrow specular peaks.
-        const wave = smoothWave(t * bands + 0.3);
+        const wave = smoothWave(phase + 0.3 - sweep);
         const spec = smoothstep(1 - peak, 1, wave);
         const shadow = smoothstep(0.4, 0, wave);
         let lum = 0.44 + 0.16 * t + 0.14 * wave * wave - 0.14 * shadow + 0.3 * spec;
@@ -210,35 +237,37 @@ export const metallicLayer: LayerDefinition = {
         if (brushStrength > 0) {
           const a = lx * brush.x + ly * brush.y;
           const b = -lx * brush.y + ly * brush.x;
-          const n1 = valueNoise(a / brushLen, b / brushWidth, seed + 11);
-          const n2 = valueNoise(a / (brushLen * 0.35), b / (brushWidth * 2.6), seed + 12);
+          const n1 = brushCoarse(a, b, seed + 11);
+          const n2 = brushFine(a, b, seed + 12);
           lum += ((n1 - 0.5) * 0.7 + (n2 - 0.5) * 0.3) * brushStrength * 0.22;
         }
 
         // Fine microtexture.
-        lum += (hash01(Math.floor(lx * 1.5), Math.floor(ly * 1.5), seed + 13) - 0.5) * (0.015 + roughness * 0.03);
+        lum += (micro(lx, ly, seed + 13) - 0.5) * (0.015 + roughness * 0.03);
 
         // Scratches: sparse thin straight segments.
         if (scratches > 0) {
-          const gx = Math.floor(lx / scratchCell);
-          const gy = Math.floor(ly / scratchCell);
+          const gx = Math.floor(lx * scratchCells.kx);
+          const gy = Math.floor(ly * scratchCells.ky);
           let s = 0;
           for (let oy = -1; oy <= 1; oy++) {
             for (let ox = -1; ox <= 1; ox++) {
               const cx = gx + ox;
               const cy = gy + oy;
-              const h = hash2(cx, cy, seed + 21);
+              const hx = wrapCell(cx, scratchCells.px);
+              const hy = wrapCell(cy, scratchCells.py);
+              const h = hash2(hx, hy, seed + 21);
               const count = Math.floor(((h & 0xff) / 256) * 3 * scratches + scratches * 0.6);
               for (let k = 0; k < count; k++) {
-                const px = (cx + hash01(cx * 8 + k, cy, seed + 22)) * scratchCell;
-                const py = (cy + hash01(cx * 8 + k, cy, seed + 23)) * scratchCell;
+                const px = (cx + hash01(hx * 8 + k, hy, seed + 22)) * cellW;
+                const py = (cy + hash01(hx * 8 + k, hy, seed + 23)) * cellH;
                 // Direction from a hashed point on the unit circle (no trig per pixel).
-                let dx = hash01(cx * 8 + k, cy, seed + 24) - 0.5;
-                let dy = hash01(cx * 8 + k, cy, seed + 25) - 0.5;
+                let dx = hash01(hx * 8 + k, hy, seed + 24) - 0.5;
+                let dy = hash01(hx * 8 + k, hy, seed + 25) - 0.5;
                 const len = Math.sqrt(dx * dx + dy * dy) || 1;
                 dx /= len;
                 dy /= len;
-                const half = scratchCell * (0.15 + hash01(cx * 8 + k, cy, seed + 26) * 0.45);
+                const half = cellW * (0.15 + hash01(hx * 8 + k, hy, seed + 26) * 0.45);
                 const rx = lx - px;
                 const ry = ly - py;
                 const along = rx * dx + ry * dy;

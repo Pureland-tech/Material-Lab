@@ -11,6 +11,7 @@ import { track } from './lib/analytics';
 import { clearDraft, writeDraft } from './lib/draft';
 import { saveRecipe } from './lib/library';
 import { navigate } from './lib/router';
+import { remoteReplacements, setEditingGuard } from './lib/sync';
 import { SaveDialog, type SaveRequest } from './screens/editor/SaveDialog';
 import { UnsavedChangesDialog } from './screens/editor/UnsavedChangesDialog';
 
@@ -144,6 +145,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       navigate('create');
     });
   }, [guard]);
+
+  // Cloud sync never replaces a recipe that is open with unsaved changes, and
+  // refreshes the editor when it replaces one that is open without changes.
+  useEffect(() => {
+    setEditingGuard((id) => editorRef.current.recipe?.recipeId === id && isDirty(editorRef.current));
+    return remoteReplacements.subscribe(() => {
+      const next = remoteReplacements.get();
+      const current = editorRef.current;
+      if (next && current.recipe?.recipeId === next.recipeId && !isDirty(current)) {
+        dispatch({ type: 'load', recipe: next, source: current.source ?? 'library', persisted: true, selection: current.selection });
+        toast.show(`“${next.name}” was updated from your other device.`);
+      }
+    });
+  }, [toast]);
 
   // Keep a recoverable draft while there are unsaved changes.
   useEffect(() => {

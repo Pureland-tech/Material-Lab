@@ -18,6 +18,9 @@ scope.onmessage = (event: MessageEvent<ChunkRequest>) => {
         pixelRatio: req.pixelRatio,
         rows: req.rows,
         layerCount: req.layerCount ?? 0,
+        tile: req.tile,
+        time: req.time ?? undefined,
+        motion: req.motion,
       });
       buffer = data.buffer as ArrayBuffer;
     } else {
@@ -29,6 +32,9 @@ scope.onmessage = (event: MessageEvent<ChunkRequest>) => {
         background: req.background,
         rows: req.rows,
         below: req.below,
+        tile: req.tile,
+        time: req.time ?? undefined,
+        motion: req.motion,
       });
       buffer = result.data.buffer as ArrayBuffer;
       warnings = result.warnings;

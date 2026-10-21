@@ -1,4 +1,15 @@
-import { FAMILY_DESCRIPTIONS, FAMILY_IDS, FAMILY_LABELS, searchPresets, type FamilyId } from '@material-lab/engine';
+import {
+  FAMILY_DESCRIPTIONS,
+  FAMILY_IDS,
+  FAMILY_LABELS,
+  PRESET_PALETTES,
+  PRESET_STYLES,
+  presetTilesSeamlessly,
+  searchPresets,
+  type FamilyId,
+  type PresetPalette,
+  type PresetStyle,
+} from '@material-lab/engine';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useApp } from '../AppContext';
 import { Icon } from '../components/Icon';
@@ -12,13 +23,17 @@ export function ExploreScreen() {
   const familyParam = route.params.get('family');
   const family = (FAMILY_IDS as readonly string[]).includes(familyParam ?? '') ? (familyParam as FamilyId) : null;
   const [query, setQuery] = useState(route.params.get('q') ?? '');
+  const [style, setStyle] = useState<PresetStyle | null>(null);
+  const [palette, setPalette] = useState<PresetPalette | null>(null);
+  const [seamless, setSeamless] = useState(false);
   const searchId = useId();
 
   useEffect(() => {
     track('preset_browser_opened', { platform: 'web' });
   }, []);
 
-  const results = useMemo(() => searchPresets(query, family), [query, family]);
+  const results = useMemo(() => searchPresets(query, { family, style, palette, seamless }), [query, family, style, palette, seamless]);
+  const filtered = family !== null || style !== null || palette !== null || seamless;
 
   const setFamily = (f: FamilyId | null) => navigate('explore', f ? { family: f } : undefined);
 
@@ -58,6 +73,48 @@ export function ExploreScreen() {
         </div>
       </div>
 
+      <div className="filter-row" role="group" aria-label="More filters">
+        <label className="inline-select">
+          <span>Style</span>
+          <select className="input select compact" value={style ?? ''} onChange={(e) => setStyle((e.target.value || null) as PresetStyle | null)}>
+            <option value="">Any</option>
+            {PRESET_STYLES.map((v) => (
+              <option key={v} value={v}>
+                {capitalize(v)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Palette</span>
+          <select className="input select compact" value={palette ?? ''} onChange={(e) => setPalette((e.target.value || null) as PresetPalette | null)}>
+            <option value="">Any</option>
+            {PRESET_PALETTES.map((v) => (
+              <option key={v} value={v}>
+                {capitalize(v)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="chip" aria-pressed={seamless} onClick={() => setSeamless((v) => !v)} title="Presets that repeat without visible edges">
+          <Icon name="grid" size={13} /> Tiles seamlessly
+        </button>
+        {filtered && (
+          <button
+            type="button"
+            className="link-btn small"
+            onClick={() => {
+              setStyle(null);
+              setPalette(null);
+              setSeamless(false);
+              setFamily(null);
+            }}
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {family && <p className="family-description">{FAMILY_DESCRIPTIONS[family]}</p>}
 
       <p className="sr-only" role="status">
@@ -67,13 +124,16 @@ export function ExploreScreen() {
       {results.length === 0 ? (
         <div className="empty-state">
           <Icon name="search" size={28} />
-          <h2>No presets match “{query}”</h2>
+          <h2>{query ? `No presets match “${query}”` : 'No presets match these filters'}</h2>
           <p className="muted">Try a texture family or a use case such as “card background”.</p>
           <button
             type="button"
             className="btn btn-secondary"
             onClick={() => {
               setQuery('');
+              setStyle(null);
+              setPalette(null);
+              setSeamless(false);
               setFamily(null);
             }}
           >
@@ -92,6 +152,7 @@ export function ExploreScreen() {
                     <span className="badge">{FAMILY_LABELS[preset.family]}</span>
                     {preset.status === 'beta' && <span className="badge badge-warning">Beta</span>}
                     {preset.recipe.canvas.transparentBackground && <span className="badge">Transparent</span>}
+                    {presetTilesSeamlessly(preset) && <span className="badge" title="Can render as a seamless tile without changes">Tileable</span>}
                   </span>
                   <span className="card-desc" id={`${preset.id}-desc`}>
                     {preset.description}
@@ -106,4 +167,8 @@ export function ExploreScreen() {
       )}
     </div>
   );
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

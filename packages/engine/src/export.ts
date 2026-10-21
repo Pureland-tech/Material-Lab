@@ -1,6 +1,8 @@
 import { normalizeHex } from './color';
 import { getLayerDefinition } from './layers';
 import { slugify } from './recipe';
+import { isSeamless } from './seamless';
+import { analyzeVector } from './svg';
 import { estimateRenderMemory, RENDER_LIMITS } from './render';
 import type { ExportFormat, Recipe } from './types';
 import { normalizeLayerParameters } from './validate';
@@ -79,11 +81,15 @@ export function analyzeAlpha(recipe: Recipe): AlphaSupport {
 }
 
 /** Lowercase, filesystem-safe filename with the correct extension. */
+export function fileExtension(format: ExportFormat): string {
+  return format === 'jpeg' ? 'jpg' : format;
+}
+
 export function sanitizeFilename(name: string, format: ExportFormat): string {
-  const ext = format === 'jpeg' ? 'jpg' : 'png';
+  const ext = fileExtension(format);
   let base = name
     .trim()
-    .replace(/\.(png|jpe?g)$/i, '')
+    .replace(/\.(png|jpe?g|svg)$/i, '')
     .replace(/[\\/:*?"<>|\u0000-\u001f\u007f]+/g, '-')
     .replace(/\s+/g, '-')
     .replace(/^[.-]+|[.-]+$/g, '');
@@ -91,9 +97,13 @@ export function sanitizeFilename(name: string, format: ExportFormat): string {
   return base ? `${base}.${ext}` : '';
 }
 
-export function defaultExportFilename(recipeName: string, settings: Pick<ExportSettings, 'width' | 'height' | 'scale' | 'format'>): string {
+export function defaultExportFilename(
+  recipeName: string,
+  settings: Pick<ExportSettings, 'width' | 'height' | 'scale' | 'format'>,
+  tile = false,
+): string {
   const suffix = settings.scale > 1 ? `@${settings.scale}x` : '';
-  return sanitizeFilename(`${slugify(recipeName)}-${settings.width}x${settings.height}${suffix}`, settings.format);
+  return sanitizeFilename(`${slugify(recipeName)}${tile ? '-tile' : ''}-${settings.width}x${settings.height}${suffix}`, settings.format);
 }
 
 export function defaultExportSettings(recipe: Recipe): ExportSettings {
@@ -101,17 +111,19 @@ export function defaultExportSettings(recipe: Recipe): ExportSettings {
   const alpha = analyzeAlpha(recipe);
   const format = d.format;
   const transparent = format === 'png' && recipe.canvas.transparentBackground && alpha.supported;
+  const tile = isSeamless(recipe);
   const settings: ExportSettings = {
     format,
-    width: d.width,
-    height: d.height,
+    // A seamless tile is the canvas.
+    width: tile ? recipe.canvas.width : d.width,
+    height: tile ? recipe.canvas.height : d.height,
     scale: d.scale,
     transparent,
     background: '#FFFFFF',
     quality: 0.92,
     filename: '',
   };
-  settings.filename = defaultExportFilename(recipe.name, settings);
+  settings.filename = defaultExportFilename(recipe.name, settings, tile);
   return settings;
 }
 
@@ -121,6 +133,11 @@ export function defaultExportSettings(recipe: Recipe): ExportSettings {
  */
 export function estimateFileSize(outputWidth: number, outputHeight: number, format: ExportFormat, transparent: boolean, quality = 0.92): { min: number; max: number } {
   const px = outputWidth * outputHeight;
+  if (format === 'svg') {
+    // Vector SVGs are tiny; image-backed SVGs are a base64 PNG (about 4/3 larger).
+    const png = estimateFileSize(outputWidth, outputHeight, 'png', transparent);
+    return { min: 400, max: Math.round(png.max * 1.37) };
+  }
   if (format === 'jpeg') {
     const perPx = 0.12 + Math.max(0, quality - 0.5) * 1.6;
     return { min: Math.round(px * perPx * 0.35), max: Math.round(px * perPx) };
@@ -175,7 +192,7 @@ export function validateExportSettings(recipe: Recipe, settings: ExportSettings)
   if (!(EXPORT_LIMITS.scales as readonly number[]).includes(settings.scale)) {
     errors.push({ field: 'scale', message: 'Choose a scale of 1×, 2×, 3× or 4×.' });
   }
-  if (settings.format !== 'png' && settings.format !== 'jpeg') errors.push({ field: 'format', message: 'Choose PNG or JPEG.' });
+  if (settings.format !== 'png' && settings.format !== 'jpeg' && settings.format !== 'svg') errors.push({ field: 'format', message: 'Choose PNG, JPEG or SVG.' });
 
   if (settings.transparent) {
     if (settings.format === 'jpeg') {
@@ -192,6 +209,13 @@ export function validateExportSettings(recipe: Recipe, settings: ExportSettings)
   }
   if (!sanitizeFilename(settings.filename, settings.format)) {
     errors.push({ field: 'filename', message: 'Enter a file name.' });
+  }
+
+  if (isSeamless(recipe) && (settings.width !== recipe.canvas.width || settings.height !== recipe.canvas.height)) {
+    errors.push({
+      field: 'size',
+      message: `Seamless tiles export at the canvas size (${recipe.canvas.width} × ${recipe.canvas.height}). Use Scale for more pixels, or change the canvas size.`,
+    });
   }
 
   const outputWidth = sideOk(settings.width) ? settings.width * settings.scale : 0;
@@ -219,6 +243,12 @@ export function validateExportSettings(recipe: Recipe, settings: ExportSettings)
       } else if (estimatedMemoryBytes > EXPORT_LIMITS.warnMemoryBytes || outputWidth * outputHeight > EXPORT_LIMITS.warnPixels) {
         warnings.push('Large export: rendering may take a while and use a lot of memory.');
       }
+    }
+  }
+  if (settings.format === 'svg') {
+    const vector = analyzeVector(recipe);
+    if (!vector.vector) {
+      warnings.push(`Not a vector SVG: ${vector.reason} The SVG will contain the texture as an embedded PNG image.`);
     }
   }
   if (settings.format === 'jpeg' && alpha.supported && recipe.canvas.transparentBackground) {

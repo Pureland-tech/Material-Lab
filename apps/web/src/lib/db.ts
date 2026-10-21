@@ -5,12 +5,12 @@
  */
 
 const DB_NAME = 'material-lab';
-const DB_VERSION = 1;
-export const STORES = ['recipes', 'exports'] as const;
+const DB_VERSION = 2;
+export const STORES = ['recipes', 'exports', 'versions'] as const;
 export type StoreName = (typeof STORES)[number];
 
 let dbPromise: Promise<IDBDatabase | null> | null = null;
-const memory: Record<StoreName, Map<string, unknown>> = { recipes: new Map(), exports: new Map() };
+const memory: Record<StoreName, Map<string, unknown>> = { recipes: new Map(), exports: new Map(), versions: new Map() };
 
 function openDb(): Promise<IDBDatabase | null> {
   if (dbPromise) return dbPromise;
@@ -26,9 +26,16 @@ function openDb(): Promise<IDBDatabase | null> {
       const db = request.result;
       for (const name of STORES) if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // Let a newer version in another tab upgrade the database.
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
     request.onerror = () => resolve(null);
-    request.onblocked = () => resolve(null);
+    // An older tab is holding the database open; it closes itself on
+    // `versionchange`, but fall back to memory if it does not.
+    request.onblocked = () => setTimeout(() => resolve(null), 3000);
   });
   return dbPromise;
 }
@@ -55,6 +62,18 @@ export async function dbGetAll<T>(store: StoreName): Promise<T[]> {
   const db = await openDb();
   if (!db) return [...memory[store].values()] as T[];
   return wrap(db.transaction(store, 'readonly').objectStore(store).getAll()) as Promise<T[]>;
+}
+
+/** All values whose key starts with `prefix` (keys are strings). */
+export async function dbGetByPrefix<T>(store: StoreName, prefix: string): Promise<{ key: string; value: T }[]> {
+  const db = await openDb();
+  if (!db) {
+    return [...memory[store].entries()].filter(([k]) => k.startsWith(prefix)).map(([key, value]) => ({ key, value: value as T }));
+  }
+  const range = IDBKeyRange.bound(prefix, `${prefix}\uffff`);
+  const os = db.transaction(store, 'readonly').objectStore(store);
+  const [keys, values] = await Promise.all([wrap(os.getAllKeys(range)), wrap(os.getAll(range))]);
+  return keys.map((key, i) => ({ key: String(key), value: values[i] as T }));
 }
 
 export async function dbPut<T>(store: StoreName, key: string, value: T): Promise<void> {

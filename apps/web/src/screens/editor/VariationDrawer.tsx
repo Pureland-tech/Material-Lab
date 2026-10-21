@@ -19,6 +19,7 @@ import { Modal } from '../../components/Modal';
 import { RecipeThumb } from '../../components/RecipeThumb';
 import { useToast } from '../../components/Toasts';
 import { track } from '../../lib/analytics';
+import { BatchExportDialog } from './BatchExportDialog';
 
 interface VariationDrawerProps {
   recipe: Recipe;
@@ -39,6 +40,8 @@ export function VariationDrawer({ recipe, onClose }: VariationDrawerProps) {
   const [batch, setBatch] = useState<{ source: Recipe; candidates: VariationCandidate[] } | null>(null);
   const [failed, setFailed] = useState<Set<number>>(new Set());
   const [comparing, setComparing] = useState<VariationCandidate | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const selectedLayer = editor.selection !== 'canvas' ? recipe.layers.find((l) => l.id === editor.selection) : undefined;
 
@@ -65,6 +68,7 @@ export function VariationDrawer({ recipe, onClose }: VariationDrawerProps) {
       variationSeed,
     });
     setFailed(new Set());
+    setSelected(new Set());
     setBatch({ source: recipe, candidates });
     track('variation_generation_started', { candidate_count: count, allowed_dimension_count: dimensions.length });
   };
@@ -164,6 +168,20 @@ export function VariationDrawer({ recipe, onClose }: VariationDrawerProps) {
                   {failed.size} of {batch.candidates.length} candidates could not be rendered. The others are still usable.
                 </p>
               )}
+              <div className="batch-bar">
+                <label className="check-row">
+                  <input
+                    type="checkbox"
+                    checked={selected.size === batch.candidates.length}
+                    onChange={(e) => setSelected(e.target.checked ? new Set(batch.candidates.map((c) => c.index)) : new Set())}
+                  />
+                  <span>Select all</span>
+                </label>
+                <button type="button" className="btn btn-secondary btn-small" disabled={selected.size === 0} onClick={() => setBatchOpen(true)}>
+                  <Icon name="download" />
+                  Export selected ({selected.size})
+                </button>
+              </div>
               <ul className="candidate-grid">
                 {batch.candidates.map((c) => (
                   <li key={c.index} className="candidate">
@@ -174,9 +192,24 @@ export function VariationDrawer({ recipe, onClose }: VariationDrawerProps) {
                       onError={() => setFailed((s) => new Set(s).add(c.index))}
                     />
                     <div className="candidate-body">
-                      <span className="candidate-title">
-                        #{c.index + 1} · seed {c.seed}
-                      </span>
+                      <label className="candidate-title check-row">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(c.index)}
+                          aria-label={`Select variation ${c.index + 1} for export`}
+                          onChange={(e) =>
+                            setSelected((s) => {
+                              const next = new Set(s);
+                              if (e.target.checked) next.add(c.index);
+                              else next.delete(c.index);
+                              return next;
+                            })
+                          }
+                        />
+                        <span>
+                          #{c.index + 1} · seed {c.seed}
+                        </span>
+                      </label>
                       <span className="candidate-summary" title={c.summary}>
                         {c.changes.length === 0 ? 'No changes' : `${c.changes.length} change${c.changes.length > 1 ? 's' : ''}: ${c.summary}`}
                       </span>
@@ -197,6 +230,10 @@ export function VariationDrawer({ recipe, onClose }: VariationDrawerProps) {
           )}
         </div>
       </div>
+
+      {batchOpen && batch && (
+        <BatchExportDialog name={recipe.name} candidates={batch.candidates.filter((c) => selected.has(c.index))} onClose={() => setBatchOpen(false)} />
+      )}
 
       {comparing && batch && (
         <Modal

@@ -109,7 +109,7 @@ export function inferFamily(recipe: Recipe): RecipeFamily {
  * previews and comparing renders.
  */
 export function renderFingerprint(recipe: Recipe): string {
-  return JSON.stringify([recipe.engineVersion, recipe.seed, recipe.canvas, recipe.layers]);
+  return JSON.stringify([recipe.engineVersion, recipe.seed, recipe.canvas, recipe.layers, recipe.exportDefaults.seamless]);
 }
 
 /** Stable string of everything a user would consider "their edits". */

@@ -27,7 +27,14 @@ export type EventName =
   | 'export_started'
   | 'export_completed'
   | 'export_failed'
-  | 'auth_prompt_opened';
+  | 'auth_prompt_opened'
+  | 'account_signed_in'
+  | 'sync_status_changed'
+  | 'share_link_created'
+  | 'shared_recipe_opened'
+  | 'team_created'
+  | 'suggestion_requested'
+  | 'suggestion_opened';
 
 export type EventProps = Record<string, string | number | boolean>;
 

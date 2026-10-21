@@ -7,6 +7,7 @@ export interface PreviewTarget {
   pixelRatio: number;
   transparent: boolean;
   background: string;
+  tile: boolean;
 }
 
 export interface PreviewFrame {
@@ -36,7 +37,7 @@ interface Running {
 }
 
 function keyOf(t: PreviewTarget): string {
-  return `${renderFingerprint(t.recipe)}|${t.pixelRatio.toFixed(4)}|${t.transparent}|${t.background}`;
+  return `${renderFingerprint(t.recipe)}|${t.pixelRatio.toFixed(4)}|${t.transparent}|${t.background}|${t.tile}`;
 }
 
 /**
@@ -119,6 +120,7 @@ export class PreviewScheduler {
           pixelRatio: outW / width,
           transparent: target.transparent,
           background: target.background,
+          tile: target.tile,
         },
         { priority: 'interactive', signal: controller.signal },
       )

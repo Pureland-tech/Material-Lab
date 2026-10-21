@@ -1,4 +1,4 @@
-import { renderFingerprint, type Recipe } from '@material-lab/engine';
+import { isSeamless, renderFingerprint, type Recipe } from '@material-lab/engine';
 import { getRenderPool } from './pool';
 
 const MAX_ENTRIES = 160;
@@ -38,7 +38,7 @@ export function renderThumbnail(recipe: Recipe, width: number): Promise<ImageDat
   const height = Math.max(1, Math.round(recipe.canvas.height * pixelRatio));
   const promise = getRenderPool()
     .render(
-      { recipe, width, height, pixelRatio, transparent: true, background: '#FFFFFF' },
+      { recipe, width, height, pixelRatio, transparent: true, background: '#FFFFFF', tile: isSeamless(recipe) },
       { priority: 'background' },
     )
     .then((result) => {
