@@ -6,10 +6,20 @@ import { Menu } from '../components/Menu';
 import { Modal } from '../components/Modal';
 import { RecipeThumb } from '../components/RecipeThumb';
 import { useToast } from '../components/Toasts';
+import { apiBase } from '../lib/api';
 import { downloadJson, formatRelative } from '../lib/format';
 import { deleteRecipe, duplicateEntry, findByName, renameRecipe, toggleFavorite, useLibrary, type LibraryEntry } from '../lib/library';
 import { routeHref } from '../lib/router';
+import { entrySyncState, type EntrySyncState } from '../lib/sync';
+import { ConflictDialog } from './ConflictDialog';
+import { ShareDialog } from './editor/ShareDialog';
 import { ImportDialog } from './ImportDialog';
+
+const SYNC_BADGES: Partial<Record<EntrySyncState, { label: string; title: string; tone: string }>> = {
+  synced: { label: 'Synced', title: 'The same version is in your account', tone: 'badge-success' },
+  pending: { label: 'Not synced yet', title: 'Saved on this device; uploads on the next sync', tone: '' },
+  conflict: { label: 'Changed on 2 devices', title: 'Choose which version to keep', tone: 'badge-warning' },
+};
 
 type Sort = 'recent' | 'name';
 type Filter = 'all' | 'favorites' | RecipeFamily;
@@ -24,6 +34,8 @@ export function LibraryScreen() {
   const [renaming, setRenaming] = useState<LibraryEntry | null>(null);
   const [deleting, setDeleting] = useState<LibraryEntry | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [conflict, setConflict] = useState<LibraryEntry | null>(null);
+  const [sharing, setSharing] = useState<LibraryEntry | null>(null);
   const searchId = useId();
 
   const entries = useMemo(() => {
@@ -142,6 +154,25 @@ export function LibraryScreen() {
                       <div className="card-title-row">
                         <span className="card-title">{r.name}</span>
                         {isOpen && <span className="badge">Open</span>}
+                        {entry.team && (
+                          <span className="badge" title={`Working copy of a recipe in ${entry.team.teamName}`}>
+                            {entry.team.teamName}
+                          </span>
+                        )}
+                        {(() => {
+                          const state = entrySyncState(entry);
+                          const badge = SYNC_BADGES[state];
+                          if (!badge) return null;
+                          return state === 'conflict' ? (
+                            <button type="button" className={`badge badge-button ${badge.tone}`} title={badge.title} onClick={() => setConflict(entry)}>
+                              {badge.label}
+                            </button>
+                          ) : (
+                            <span className={`badge ${badge.tone}`} title={badge.title}>
+                              {badge.label}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <span className="card-meta">
                         {r.family === 'custom' ? 'Custom' : FAMILY_LABELS[r.family]} · {r.layers.length} layer{r.layers.length === 1 ? '' : 's'} · saved{' '}
@@ -174,6 +205,8 @@ export function LibraryScreen() {
                               },
                             },
                             { label: 'Download JSON', icon: 'file', onSelect: () => downloadJson(r, `${slugify(r.name)}.recipe.json`) },
+                            ...(entrySyncState(entry) === 'conflict' ? [{ label: 'Choose version…', icon: 'warning' as const, onSelect: () => setConflict(entry) }] : []),
+                            ...(apiBase() && !entry.team ? [{ label: 'Share link…', icon: 'copy' as const, onSelect: () => setSharing(entry) }] : []),
                             { label: 'Delete…', icon: 'trash', danger: true, onSelect: () => setDeleting(entry) },
                           ]}
                         />
@@ -230,12 +263,14 @@ export function LibraryScreen() {
         }
       >
         <p>
-          “{deleting?.recipe.name}” will be removed from this browser. This cannot be undone. Exported images are not affected.
+          “{deleting?.recipe.name}” will be removed from this browser{deleting && entrySyncState(deleting) !== 'local' && !deleting.team ? ' and from your account on the next sync' : ''}. This cannot be undone. Exported images are not affected.
           {editor.recipe?.recipeId === deleting?.recipe.recipeId && ' The open copy in the editor stays open, unsaved.'}
         </p>
       </Modal>
 
       {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
+      {conflict && <ConflictDialog entry={library.entries.find((e) => e.recipe.recipeId === conflict.recipe.recipeId) ?? conflict} onClose={() => setConflict(null)} />}
+      {sharing && <ShareDialog recipe={sharing.recipe} onClose={() => setSharing(null)} />}
     </div>
   );
 }

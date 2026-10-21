@@ -1,6 +1,7 @@
 import { FAMILY_IDS, FAMILY_LABELS, PRESETS, type FamilyId } from '@material-lab/engine';
 import { useState } from 'react';
 import { useApp } from '../AppContext';
+import { AssistantPanel } from '../components/AssistantPanel';
 import { Icon } from '../components/Icon';
 import { RecipeThumb } from '../components/RecipeThumb';
 import { clearDraft, readDraft, type Draft } from '../lib/draft';
@@ -47,7 +48,7 @@ export function WelcomeScreen() {
             </button>
           </div>
           <p className="muted small">
-            <Icon name="lock" size={13} /> No account needed. Textures render in your browser and export straight to your device.
+            <Icon name="lock" size={13} /> No account needed. Textures render in your browser and export straight to your device. Sign in only if you want sync, sharing or teams.
           </p>
         </div>
         <div className="hero-art" aria-hidden="true">
@@ -88,6 +89,8 @@ export function WelcomeScreen() {
           </div>
         </section>
       )}
+
+      <AssistantPanel />
 
       {editor.recipe && (
         <section className="section">

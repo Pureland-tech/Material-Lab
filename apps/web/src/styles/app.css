@@ -2763,3 +2763,398 @@ details.advanced[open] {
   flex-direction: column;
   gap: 4px;
 }
+
+/* Accounts, sync, sharing, teams and the assistant */
+.page.narrow {
+  max-width: 880px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+
+.small-heading {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.badge-success {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+
+.badge-button {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.badge-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.topbar-account {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.topbar-account .topbar-note {
+  margin-left: 0;
+}
+
+.topbar-user {
+  font-size: 13px;
+  color: var(--text-2);
+  text-decoration: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  background: var(--surface-2);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sync-pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.sync-pill.sync-idle {
+  background: var(--success-soft);
+  color: var(--success-text);
+}
+
+.sync-pill.sync-syncing {
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}
+
+.sync-pill.sync-error {
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+
+.sync-pill.sync-conflict {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+
+.sync-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.account-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+  gap: 32px;
+  align-items: start;
+}
+
+.value-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.value-list li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.value-list svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.account-form {
+  padding: 20px;
+}
+
+.account-form .segmented {
+  align-self: flex-start;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.inline-form .input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.server-url summary {
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Describe a texture */
+.assistant-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.assistant-modes {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.textarea {
+  min-height: 64px;
+  resize: vertical;
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.assistant-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.assistant-result .thumb,
+.assistant-result canvas {
+  border-radius: var(--radius);
+}
+
+.choices summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.choice-table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.choice-table th,
+.choice-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.consent .stack-tight {
+  gap: 6px;
+}
+
+/* Shared recipe view */
+.shared-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+  align-items: start;
+}
+
+.shared-preview img,
+.shared-preview canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.shared-details {
+  padding: 16px;
+}
+
+.layer-summary {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.layer-summary .unsupported {
+  color: var(--warning-text);
+}
+
+/* Share links */
+.share-list,
+.invite-list,
+.member-list,
+.activity-list,
+.team-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.share-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.share-list li.inactive {
+  opacity: 0.6;
+}
+
+.share-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.share-url {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 100%;
+}
+
+/* Teams */
+.team-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.team-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+.team-layout aside .card {
+  padding: 14px;
+}
+
+.member-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.member-list li > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.invite-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+/* Sync conflicts */
+.conflict-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 12px 0;
+}
+
+.conflict-grid figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conflict-deleted {
+  aspect-ratio: 16 / 10;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-3);
+}
+
+@media (max-width: 860px) {
+  .account-grid,
+  .assistant-body,
+  .shared-layout,
+  .team-layout,
+  .conflict-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar-user {
+    display: none;
+  }
+}
+
+.team-layout .section-head {
+  margin-bottom: 10px;
+}
+
+.team-layout .filter-row {
+  margin-bottom: 14px;
+}
+
+.shared-details,
+.team-layout aside {
+  align-self: start;
+}

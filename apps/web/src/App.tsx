@@ -1,21 +1,30 @@
 import { useEffect, useRef } from 'react';
 import { useApp } from './AppContext';
+import { AccountBadge } from './components/AccountBadge';
+import { refreshAccount, restoreSession } from './lib/account';
 import { track } from './lib/analytics';
+import { apiBase } from './lib/api';
 import { loadExportLog } from './lib/exports-log';
 import { loadLibrary } from './lib/library';
 import { routeHref, useRoute, type RouteName } from './lib/router';
 import { applyTheme, useSettings } from './lib/settings';
+import { startSync } from './lib/sync';
+import { AccountScreen } from './screens/AccountScreen';
 import { EditorScreen } from './screens/editor/EditorScreen';
 import { ExploreScreen } from './screens/ExploreScreen';
 import { ExportsScreen } from './screens/ExportsScreen';
 import { LibraryScreen } from './screens/LibraryScreen';
+import { InviteScreen } from './screens/InviteScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { SharedScreen } from './screens/SharedScreen';
+import { TeamsScreen } from './screens/TeamsScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
 
-const NAV: { route: RouteName; label: string }[] = [
+const NAV: { route: RouteName; label: string; needsServer?: boolean }[] = [
   { route: 'create', label: 'Create' },
   { route: 'explore', label: 'Explore' },
   { route: 'recipes', label: 'My Recipes' },
+  { route: 'teams', label: 'Teams', needsServer: true },
   { route: 'exports', label: 'Exports' },
   { route: 'settings', label: 'Settings' },
 ];
@@ -27,6 +36,10 @@ const TITLES: Record<RouteName, string> = {
   recipes: 'My Recipes',
   exports: 'Exports',
   settings: 'Settings',
+  account: 'Account',
+  teams: 'Teams',
+  shared: 'Shared recipe',
+  invite: 'Team invite',
 };
 
 export function App() {
@@ -42,6 +55,9 @@ export function App() {
   useEffect(() => {
     void loadLibrary();
     void loadExportLog();
+    restoreSession();
+    startSync();
+    void refreshAccount().catch(() => undefined);
     track('material_lab_opened', { platform: 'web', entry_point: entryPoint.current });
   }, []);
 
@@ -77,6 +93,18 @@ export function App() {
     case 'settings':
       screen = <SettingsScreen />;
       break;
+    case 'account':
+      screen = <AccountScreen />;
+      break;
+    case 'teams':
+      screen = <TeamsScreen key={route.id ?? 'list'} teamId={route.id} />;
+      break;
+    case 'shared':
+      screen = <SharedScreen token={route.id} />;
+      break;
+    case 'invite':
+      screen = <InviteScreen token={route.id} />;
+      break;
     default:
       screen = <WelcomeScreen />;
   }
@@ -92,7 +120,7 @@ export function App() {
           <span className="brand-name">Material Lab</span>
         </a>
         <nav className="topnav" aria-label="Main">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.needsServer || apiBase()).map((item) => (
             <a key={item.route} href={routeHref(item.route)} className="topnav-link" aria-current={route.name === item.route ? 'page' : undefined}>
               {item.label}
               {item.route === 'create' && dirty && route.name !== 'create' && (
@@ -101,9 +129,7 @@ export function App() {
             </a>
           ))}
         </nav>
-        <span className="topbar-note" title="Textures render in your browser. Nothing is uploaded.">
-          Local · no account needed
-        </span>
+        <AccountBadge />
       </header>
       <main id="main" ref={mainRef} className={`main main-${route.name}`} tabIndex={-1}>
         {screen}

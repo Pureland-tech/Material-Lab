@@ -1,6 +1,6 @@
 import { DIMENSION_PRESETS, ENGINE_VERSION, SCHEMA_VERSION } from '@material-lab/engine';
 import { useEffect, useState } from 'react';
-import { Segmented, SelectField } from '../components/fields';
+import { Segmented, SelectField, Toggle } from '../components/fields';
 import { Icon } from '../components/Icon';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toasts';
@@ -10,17 +10,48 @@ import { clearDraft } from '../lib/draft';
 import { clearExportLog } from '../lib/exports-log';
 import { formatDateTime } from '../lib/format';
 import { clearLibrary, useLibrary } from '../lib/library';
+import { useAccount } from '../lib/account';
+import { apiBase } from '../lib/api';
+import { routeHref } from '../lib/router';
 import { useObservable } from '../lib/store';
 import { PREVIEW_QUALITY_LABELS, updateSettings, useSettings, type PreviewQuality, type Theme } from '../lib/settings';
 
 const PLATFORMS = [
-  { name: 'Figma', status: 'Next release', detail: 'Insert rendered textures as image-filled shapes. Recipes stay editable in Material Lab.' },
-  { name: 'Canva', status: 'Planned', detail: 'Add textures to designs through Canva’s app SDK, after technical validation.' },
-  { name: 'Framer', status: 'Planned', detail: 'Add texture assets to Framer projects, after a technical spike.' },
+  { name: 'Figma', status: 'Prototype', detail: 'Plugin that inserts rendered textures as image-filled shapes. Recipes stay editable in Material Lab.' },
+  { name: 'Canva', status: 'Prototype', detail: 'App that adds rendered textures to designs through Canva’s app SDK. Not yet reviewed by Canva.' },
+  { name: 'Framer', status: 'Prototype', detail: 'Plugin that adds textures as images to Framer projects. Not yet published.' },
 ];
+
+function ServerUrlField() {
+  const settings = useSettings();
+  const [value, setValue] = useState(settings.serverUrl ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const builtIn = (import.meta.env.VITE_API_URL as string | undefined) ?? null;
+  const apply = () => {
+    const v = value.trim().replace(/\/+$/, '');
+    if (v && !/^https?:\/\/[^\s]+$/.test(v)) return setError('Enter a full address starting with https://');
+    setError(null);
+    updateSettings({ serverUrl: v || null });
+    location.reload();
+  };
+  return (
+    <details className="server-url">
+      <summary>Account server{settings.serverUrl ? `: ${settings.serverUrl}` : builtIn ? `: ${builtIn} (built in)` : ': none'}</summary>
+      <div className="inline-form">
+        <input className="input" aria-label="Account server address" placeholder={builtIn ?? 'https://material-lab.example.com'} value={value} onChange={(e) => setValue(e.target.value)} />
+        <button type="button" className="btn btn-secondary btn-small" onClick={apply}>
+          Save and reload
+        </button>
+      </div>
+      {error && <p className="field-error">{error}</p>}
+      <p className="muted small">Only connect to a server you trust. Leave empty to use {builtIn ? 'the built-in server' : 'no server (local only)'}.</p>
+    </details>
+  );
+}
 
 export function SettingsScreen() {
   const settings = useSettings();
+  const accountState = useAccount();
   const library = useLibrary();
   const events = useObservable(eventLog);
   const toast = useToast();
@@ -95,14 +126,28 @@ export function SettingsScreen() {
 
       <section className="settings-section" aria-labelledby="set-account">
         <h2 id="set-account">Account & sync</h2>
-        <div className="callout callout-info">
-          <Icon name="info" />
+        {accountState.status === 'signed-in' ? (
           <p>
-            Accounts and cloud sync are not available in this version. Everything you make stays in this browser{' '}
-            {persistent === false ? '(this browser is not keeping data between sessions — save recipes as JSON to keep them)' : ''}. Use “Download JSON” in My Recipes
-            to back up or move recipes.
+            Signed in as <strong>{accountState.user?.name}</strong>. Cloud sync is {settings.cloudSync ? 'on' : 'off'}. <a href={routeHref('account')}>Manage account and sync</a>
           </p>
-        </div>
+        ) : apiBase() ? (
+          <p>
+            Everything works without an account. <a href={routeHref('account')}>Sign in</a> to sync recipes between devices, share links and use team libraries.
+          </p>
+        ) : (
+          <p className="muted">
+            This version is not connected to an account server, so everything stays in this browser
+            {persistent === false ? ' (and this browser is not keeping data between sessions — save recipes as JSON to keep them)' : ''}. Use “Download JSON” in My
+            Recipes to back up or move recipes.
+          </p>
+        )}
+        <ServerUrlField />
+        <Toggle
+          label="Allow AI suggestions to send descriptions"
+          checked={settings.aiConsent}
+          description="When on, “Describe a texture” can send your description (only that text) to Anthropic’s Claude through the account server without asking each time."
+          onChange={(aiConsent) => updateSettings({ aiConsent })}
+        />
       </section>
 
       <section className="settings-section" aria-labelledby="set-platforms">
@@ -118,13 +163,13 @@ export function SettingsScreen() {
             </li>
           ))}
         </ul>
-        <p className="muted small">Until integrations ship, export a PNG or JPEG and place it in your design tool.</p>
+        <p className="muted small">The plugins are prototypes built against each platform’s SDK and have not been tested inside the platforms yet. Export a PNG or JPEG to use textures anywhere today.</p>
       </section>
 
       <section className="settings-section" aria-labelledby="set-privacy">
         <h2 id="set-privacy">Privacy & data</h2>
         <ul className="bullet-list">
-          <li>Textures are generated and exported on this device. Nothing you make is uploaded.</li>
+          <li>Textures are generated and exported on this device. Nothing you make is uploaded unless you turn on cloud sync, create a share link or add a recipe to a team.</li>
           <li>Saved recipes ({library.entries.length}) and export history are stored in this browser’s IndexedDB.</li>
           <li>
             Usage events are kept in memory for this session only and never leave your device. They contain counts and categories — never images, recipe contents or
@@ -199,6 +244,7 @@ export function SettingsScreen() {
         <p>
           This permanently removes {library.entries.length} saved recipe{library.entries.length === 1 ? '' : 's'}, your export history and any unsaved draft from this
           browser. Exported image files are not affected. The recipe open in the editor stays open.
+          {settings.cloudSync ? ' Recipes in your account are not deleted, and they come back here on the next sync.' : ''}
         </p>
       </Modal>
     </div>

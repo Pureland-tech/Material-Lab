@@ -22,6 +22,12 @@ export interface Settings {
   colorFormat: ColorFormat;
   /** Palettes saved on this device for recoloring. */
   palettes: Palette[];
+  /** Account server; null uses the build's VITE_API_URL (if any). */
+  serverUrl: string | null;
+  /** Opt-in: sync saved recipes to the signed-in account. */
+  cloudSync: boolean;
+  /** Opt-in: allow sending texture descriptions to the AI service without asking each time. */
+  aiConsent: boolean;
 }
 
 /** Maximum preview pixels per quality level. */
@@ -43,6 +49,9 @@ const DEFAULTS: Settings = {
   exportDefaults: { format: 'png', width: null, height: null, scale: 1 },
   colorFormat: 'hex',
   palettes: [],
+  serverUrl: null,
+  cloudSync: false,
+  aiConsent: false,
 };
 
 const KEY = 'material-lab:settings';
@@ -61,6 +70,9 @@ function read(): Settings {
       theme,
       previewQuality,
       colorFormat: parsed.colorFormat === 'rgb' ? 'rgb' : 'hex',
+      serverUrl: typeof parsed.serverUrl === 'string' && /^https?:\/\/[^\s]+$/.test(parsed.serverUrl) ? parsed.serverUrl.replace(/\/+$/, '') : null,
+      cloudSync: parsed.cloudSync === true,
+      aiConsent: parsed.aiConsent === true,
       palettes: Array.isArray(parsed.palettes)
         ? parsed.palettes
             .filter((p): p is Palette => typeof p?.id === 'string' && typeof p?.name === 'string' && Array.isArray(p?.colors))

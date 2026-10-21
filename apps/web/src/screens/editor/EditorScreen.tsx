@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useApp } from '../../AppContext';
 import { Icon } from '../../components/Icon';
 import { Menu } from '../../components/Menu';
+import { apiBase } from '../../lib/api';
+import { useLibrary } from '../../lib/library';
 import { downloadJson } from '../../lib/format';
 import { routeHref } from '../../lib/router';
 import { PREVIEW_QUALITY_LABELS, updateSettings, useSettings, type PreviewQuality } from '../../lib/settings';
@@ -11,6 +13,8 @@ import { ImportDialog } from '../ImportDialog';
 import { takePendingExport } from './handoff';
 import { ExportDialog } from './ExportDialog';
 import { AnimationDialog } from './AnimationDialog';
+import { ShareDialog } from './ShareDialog';
+import { AddToTeamDialog, UpdateTeamDialog } from './TeamDialogs';
 import { HistoryDialog } from './HistoryDialog';
 import { LayerPanel } from './LayerPanel';
 import { PreviewPane, type PreviewBackground, type Zoom } from './PreviewPane';
@@ -101,7 +105,11 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
   const [variationsOpen, setVariationsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [animationOpen, setAnimationOpen] = useState(false);
+  const [teamDialog, setTeamDialog] = useState<'share' | 'add' | 'update' | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const library = useLibrary();
+  const entry = editor.persisted ? library.entries.find((e) => e.recipe.recipeId === recipe.recipeId) : undefined;
+  const server = apiBase() !== null;
   const [zoom, setZoom] = useState<Zoom>('fit');
   const [background, setBackground] = useState<PreviewBackground>('checker');
   const [tiling, setTiling] = useState(false);
@@ -230,6 +238,14 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
               { label: 'Save a copy…', icon: 'copy', hint: mac ? '⇧⌘S' : 'Ctrl+Shift+S', onSelect: saveAsCopy },
               { label: 'Version history…', icon: 'clock', disabled: !editor.persisted, onSelect: () => setHistoryOpen(true) },
               { label: 'Export animation…', icon: 'film', onSelect: () => setAnimationOpen(true) },
+              ...(server
+                ? [
+                    ...(entry?.team
+                      ? [{ label: `Update in ${entry.team.teamName}…`, icon: 'upload' as const, onSelect: () => setTeamDialog('update') }]
+                      : [{ label: 'Share link…', icon: 'copy' as const, onSelect: () => setTeamDialog('share') }]),
+                    { label: 'Add to team library…', icon: 'layers' as const, onSelect: () => setTeamDialog('add') },
+                  ]
+                : []),
               { label: 'Download recipe JSON', icon: 'file', onSelect: () => downloadJson(recipe, `${slugify(recipe.name)}.recipe.json`) },
               { label: 'Import recipe JSON…', icon: 'upload', onSelect: onImport },
               { label: 'New blank recipe', icon: 'plus', onSelect: openBlank },
@@ -370,6 +386,9 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
 
       {historyOpen && <HistoryDialog recipe={recipe} onClose={() => setHistoryOpen(false)} />}
       {animationOpen && <AnimationDialog recipe={recipe} onClose={() => setAnimationOpen(false)} />}
+      {teamDialog === 'share' && <ShareDialog recipe={recipe} onClose={() => setTeamDialog(null)} />}
+      {teamDialog === 'add' && <AddToTeamDialog recipe={recipe} onClose={() => setTeamDialog(null)} />}
+      {teamDialog === 'update' && entry?.team && <UpdateTeamDialog entry={entry} onClose={() => setTeamDialog(null)} />}
       {exportState && <ExportDialog recipe={recipe} initialSettings={exportState.initial} onClose={() => setExportState(null)} />}
     </div>
   );

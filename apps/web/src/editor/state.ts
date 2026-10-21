@@ -3,7 +3,7 @@ import { contentFingerprint, type Recipe } from '@material-lab/engine';
 /** `canvas` selects the recipe/canvas settings instead of a layer. */
 export type Selection = string | 'canvas';
 
-export type RecipeSource = 'preset' | 'blank' | 'library' | 'import' | 'export-log';
+export type RecipeSource = 'preset' | 'blank' | 'library' | 'import' | 'export-log' | 'shared' | 'suggestion' | 'team';
 
 interface Snapshot {
   recipe: Recipe;
