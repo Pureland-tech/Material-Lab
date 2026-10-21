@@ -1,4 +1,4 @@
-import type { ExportFormat } from '@material-lab/engine';
+import type { ExportFormat, Palette } from '@material-lab/engine';
 import { Observable, useObservable } from './store';
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -12,10 +12,16 @@ export interface ExportDefaultsSetting {
   scale: number;
 }
 
+export type ColorFormat = 'hex' | 'rgb';
+
 export interface Settings {
   theme: Theme;
   previewQuality: PreviewQuality;
   exportDefaults: ExportDefaultsSetting;
+  /** How color fields show and accept values. */
+  colorFormat: ColorFormat;
+  /** Palettes saved on this device for recoloring. */
+  palettes: Palette[];
 }
 
 /** Maximum preview pixels per quality level. */
@@ -35,6 +41,8 @@ const DEFAULTS: Settings = {
   theme: 'system',
   previewQuality: 'standard',
   exportDefaults: { format: 'png', width: null, height: null, scale: 1 },
+  colorFormat: 'hex',
+  palettes: [],
 };
 
 const KEY = 'material-lab:settings';
@@ -52,8 +60,15 @@ function read(): Settings {
     return {
       theme,
       previewQuality,
+      colorFormat: parsed.colorFormat === 'rgb' ? 'rgb' : 'hex',
+      palettes: Array.isArray(parsed.palettes)
+        ? parsed.palettes
+            .filter((p): p is Palette => typeof p?.id === 'string' && typeof p?.name === 'string' && Array.isArray(p?.colors))
+            .map((p) => ({ id: p.id, name: p.name.slice(0, 40), colors: p.colors.filter((c) => /^#[0-9A-F]{6}$/i.test(c)).slice(0, 8) }))
+            .slice(0, 50)
+        : [],
       exportDefaults: {
-        format: ex.format === 'jpeg' ? 'jpeg' : 'png',
+        format: ex.format === 'jpeg' || ex.format === 'svg' ? ex.format : 'png',
         width: side(ex.width),
         height: side(ex.height),
         scale: [1, 2, 3, 4].includes(ex.scale) ? ex.scale : 1,

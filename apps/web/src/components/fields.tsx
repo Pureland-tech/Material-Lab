@@ -1,6 +1,7 @@
-import { normalizeHex } from '@material-lab/engine';
+import { hexToRgb, normalizeHex, rgbToHex } from '@material-lab/engine';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 import { Icon } from './Icon';
+import { updateSettings, useSettings } from '../lib/settings';
 
 interface FieldShellProps {
   id: string;
@@ -177,6 +178,7 @@ interface ColorFieldProps {
 
 export function ColorField({ label, value, onChange, onReset, help }: ColorFieldProps) {
   const id = useId();
+  const { colorFormat } = useSettings();
   const [text, setText] = useState(value);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => setText(value), [value]);
@@ -193,6 +195,18 @@ export function ColorField({ label, value, onChange, onReset, help }: ColorField
     setText(hex);
   };
 
+  const formatToggle = (
+    <button
+      type="button"
+      className="color-format"
+      onClick={() => updateSettings({ colorFormat: colorFormat === 'hex' ? 'rgb' : 'hex' })}
+      title={`Switch all color fields to ${colorFormat === 'hex' ? 'RGB' : 'HEX'}`}
+      aria-label={`Show colors as ${colorFormat === 'hex' ? 'RGB' : 'HEX'}`}
+    >
+      {colorFormat === 'hex' ? 'HEX' : 'RGB'}
+    </button>
+  );
+
   return (
     <FieldShell id={id} label={label} help={help} error={error} onReset={onReset}>
       <div className="color-field">
@@ -203,23 +217,71 @@ export function ColorField({ label, value, onChange, onReset, help }: ColorField
           aria-label={`${label} picker`}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
         />
+        {colorFormat === 'hex' ? (
+          <input
+            id={id}
+            type="text"
+            className="input color-hex"
+            value={text}
+            spellCheck={false}
+            maxLength={7}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? `${id}-error` : undefined}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+          />
+        ) : (
+          <RgbInputs id={id} label={label} value={value} onChange={onChange} onError={setError} />
+        )}
+        {formatToggle}
+      </div>
+    </FieldShell>
+  );
+}
+
+/** Three 0–255 channel inputs; invalid entries are explained and not applied. */
+function RgbInputs({ id, label, value, onChange, onError }: { id: string; label: string; value: string; onChange: (hex: string) => void; onError: (e: string | null) => void }) {
+  const channels = hexToRgb(value).map((c) => Math.round(c * 255));
+  const [texts, setTexts] = useState(channels.map(String));
+  const key = channels.join(',');
+  useEffect(() => setTexts(key.split(',')), [key]);
+  const names = ['Red', 'Green', 'Blue'];
+  const commit = (index: number) => {
+    const n = Number(texts[index]);
+    if (!/^\d{1,3}$/.test((texts[index] ?? '').trim()) || n > 255) {
+      onError(`${names[index]} must be a whole number from 0 to 255.`);
+      setTexts(channels.map(String));
+      return;
+    }
+    onError(null);
+    const next = [...channels];
+    next[index] = n;
+    const hex = rgbToHex([next[0]! / 255, next[1]! / 255, next[2]! / 255]);
+    if (hex !== value) onChange(hex);
+  };
+  return (
+    <div className="rgb-inputs" role="group" aria-label={`${label} RGB`}>
+      {names.map((name, i) => (
         <input
-          id={id}
+          key={name}
+          id={i === 0 ? id : undefined}
           type="text"
-          className="input color-hex"
-          value={text}
-          spellCheck={false}
-          maxLength={7}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={commit}
+          inputMode="numeric"
+          className="input rgb-input"
+          aria-label={`${label} ${name.toLowerCase()} (0–255)`}
+          value={texts[i] ?? ''}
+          maxLength={3}
+          onChange={(e) => setTexts((t) => t.map((v, j) => (j === i ? e.target.value : v)))}
+          onBlur={() => commit(i)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
           }}
         />
-      </div>
-    </FieldShell>
+      ))}
+    </div>
   );
 }
 

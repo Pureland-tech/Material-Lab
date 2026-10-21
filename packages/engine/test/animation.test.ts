@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   analyzeAnimation,
+  buildGifPalette,
   createLayer,
   createRecipe,
   encodeGif,
   getPreset,
+  GifWriter,
   instantiatePreset,
   lzwEncode,
   planAnimation,
@@ -132,5 +134,30 @@ describe('animation', () => {
       for (let c = 0; c < 3; c++) total += Math.abs(palette[indices[i]! * 3 + c]! - frames[0]![i * 4 + c]!);
     }
     expect(total / (width * height * 3)).toBeLessThan(12);
+  });
+
+  it('streams frames with a palette built from small sample renders', () => {
+    const recipe = instantiatePreset(getPreset('metal-brushed-silver')!);
+    const width = 48;
+    const height = 30;
+    const samples = [0, 0.5].map((time) => renderRecipe(recipe, { width: 16, height: 10, pixelRatio: 0.01, time }).data);
+    const writer = new GifWriter({ width, height, delayCs: 10, transparent: false }, buildGifPalette(samples, false));
+    const frames = [0, 0.25, 0.5].map((time) => renderRecipe(recipe, { width, height, pixelRatio: 0.03, time }).data);
+    for (const f of frames) writer.addFrame(f);
+    expect(writer.frames).toBe(3);
+    const gif = writer.finish();
+    expect(frameData(gif)).toHaveLength(3);
+    expect(() => new GifWriter({ width, height, delayCs: 10, transparent: false }, buildGifPalette(samples, false)).addFrame(samples[0]!)).toThrow(RangeError);
+  });
+
+  it('keeps transparent pixels transparent', () => {
+    const width = 4;
+    const height = 2;
+    const frame = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < width * height; i++) frame.set(i < 4 ? [200, 40, 40, 255] : [0, 0, 0, 0], i * 4);
+    const gif = encodeGif([frame], { width, height, delayCs: 10, transparent: true });
+    const indices = lzwDecode(frameData(gif)[0]!, 8, width * height);
+    expect(indices.slice(4)).toEqual([0, 0, 0, 0]);
+    expect(indices.slice(0, 4).every((i) => i > 0)).toBe(true);
   });
 });

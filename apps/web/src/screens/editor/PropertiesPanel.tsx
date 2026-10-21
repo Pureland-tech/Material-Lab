@@ -1,9 +1,12 @@
 import {
+  analyzeSeamless,
   BLEND_MODES,
   DIMENSION_PRESETS,
   ENGINE_VERSION,
   FAMILY_LABELS,
+  fixSeamlessSeams,
   getLayerDefinition,
+  isSeamless,
   isParamVisible,
   MAX_SEED,
   PARAM_SECTION_LABELS,
@@ -14,6 +17,7 @@ import {
   type LayerDefinition,
   type ParamDef,
   type Recipe,
+  setSeamless,
 } from '@material-lab/engine';
 import { useEffect, useState } from 'react';
 import { useApp } from '../../AppContext';
@@ -34,6 +38,7 @@ import {
   setTransparentBackground,
 } from '../../editor/ops';
 import { LayerSwatch } from './LayerSwatch';
+import { RecolorSection } from './RecolorSection';
 
 const BLEND_LABELS: Record<BlendMode, string> = {
   normal: 'Normal',
@@ -376,7 +381,61 @@ function CanvasProperties({ recipe }: { recipe: Recipe }) {
             onChange={(v) => edit((r) => setTransparentBackground(r, v))}
           />
         </section>
+
+        <SeamlessSection recipe={recipe} />
+
+        <RecolorSection recipe={recipe} />
       </div>
     </>
+  );
+}
+
+function SeamlessSection({ recipe }: { recipe: Recipe }) {
+  const { edit } = useApp();
+  const seamless = isSeamless(recipe);
+  const analysis = seamless ? analyzeSeamless(recipe) : null;
+  return (
+    <section className="prop-section">
+      <h3 className="prop-section-title">Seamless tile</h3>
+      <Toggle
+        label="Seamless tile"
+        checked={seamless}
+        description="Make the canvas repeat without visible edges, for website and pattern backgrounds. Exports render one tile at the canvas size."
+        onChange={(v) => edit((r) => setSeamless(r, v))}
+      />
+      {analysis && analysis.seams.length > 0 && (
+        <div className="callout callout-warning compact" role="status">
+          <Icon name="warning" />
+          <div className="stack-tight">
+            <p>These settings will show seams between tiles:</p>
+            <ul className="issue-list">
+              {analysis.seams.map((issue, i) => (
+                <li key={i}>
+                  <strong>{issue.layerName}:</strong> {issue.message}
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn btn-secondary btn-small" onClick={() => edit((r) => fixSeamlessSeams(r))}>
+              Fix seams
+            </button>
+          </div>
+        </div>
+      )}
+      {analysis && analysis.seams.length === 0 && (
+        <p className="callout callout-success compact">
+          <Icon name="check" />
+          Tiles without seams. Use “Tile preview” below the canvas to check.
+        </p>
+      )}
+      {analysis && analysis.notes.length > 0 && (
+        <ul className="issue-list muted">
+          {analysis.notes.map((n, i) => (
+            <li key={i}>
+              {n.layerName}: {n.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

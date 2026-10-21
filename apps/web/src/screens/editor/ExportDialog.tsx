@@ -1,10 +1,12 @@
 import {
+  analyzeVector,
   createId,
   defaultExportFilename,
   defaultExportSettings,
   DIMENSION_PRESETS,
   ENGINE_VERSION,
   EXPORT_LIMITS,
+  isSeamless,
   sanitizeFilename,
   validateExportSettings,
   type ExportSettings,
@@ -39,15 +41,17 @@ type Phase =
 function initialSettingsFor(recipe: Recipe): ExportSettings {
   const base = defaultExportSettings(recipe);
   const prefs = getSettings().exportDefaults;
+  const tile = isSeamless(recipe);
   const settings: ExportSettings = {
     ...base,
     format: prefs.format,
     scale: prefs.scale,
-    width: prefs.width ?? base.width,
-    height: prefs.height ?? base.height,
+    // Seamless tiles always export at the canvas size.
+    width: tile ? base.width : (prefs.width ?? base.width),
+    height: tile ? base.height : (prefs.height ?? base.height),
   };
   if (settings.format === 'jpeg') settings.transparent = false;
-  settings.filename = defaultExportFilename(recipe.name, settings);
+  settings.filename = defaultExportFilename(recipe.name, settings, tile);
   return settings;
 }
 
@@ -71,6 +75,8 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
     return () => window.clearInterval(t);
   }, [phase.name]);
 
+  const tile = isSeamless(recipe);
+  const vector = useMemo(() => analyzeVector(recipe), [recipe]);
   const validation = useMemo(() => validateExportSettings(recipe, settings), [recipe, settings]);
   const errorFor = (field: string) => validation.errors.find((e) => e.field === field)?.message;
 
@@ -82,7 +88,7 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
       next.transparent = false;
       message = 'Transparency was turned off because JPEG cannot store it. Choose PNG to keep transparent areas.';
     }
-    if (!filenameEdited) next.filename = defaultExportFilename(recipe.name, next);
+    if (!filenameEdited) next.filename = defaultExportFilename(recipe.name, next, tile);
     else if (patch.format) next.filename = sanitizeFilename(next.filename, next.format) || next.filename;
     setSettings(next);
     setNote(message);
@@ -181,9 +187,25 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
             options={[
               { value: 'png', label: 'PNG', title: 'Lossless, supports transparency' },
               { value: 'jpeg', label: 'JPEG', title: 'Smaller files, no transparency' },
+              { value: 'svg', label: 'SVG', title: vector.vector ? 'Vector shapes and gradients' : 'Image inside an SVG file (not editable vector)' },
             ]}
             onChange={(format) => update({ format })}
           />
+          {settings.format === 'svg' && vector.vector && (
+            <p className="callout callout-success compact">
+              <Icon name="check" />
+              Vector SVG: base colors and gradients export as editable shapes.
+            </p>
+          )}
+          {tile ? (
+            <div className="callout callout-info compact">
+              <Icon name="grid" />
+              <p>
+                Seamless tile: exports one tile at the canvas size, {recipe.canvas.width} × {recipe.canvas.height} px. Use Scale for more pixels.
+              </p>
+            </div>
+          ) : (
+            <>
           <SelectField
             label="Size"
             value={sizeOption}
@@ -204,6 +226,8 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
           </div>
           {(settings.width !== recipe.canvas.width || settings.height !== recipe.canvas.height) && (
             <p className="muted small">Texture features keep their size: a different size shows more or less of the texture rather than stretching it.</p>
+          )}
+            </>
           )}
           <Segmented
             label="Scale"
@@ -268,7 +292,7 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
                 className="link-btn small"
                 onClick={() => {
                   setFilenameEdited(false);
-                  setSettings((s) => ({ ...s, filename: defaultExportFilename(recipe.name, s) }));
+                  setSettings((s) => ({ ...s, filename: defaultExportFilename(recipe.name, s, tile) }));
                 }}
               >
                 Use automatic name
@@ -361,7 +385,15 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
             <dt>Format</dt>
             <dd>
               {phase.settings.format.toUpperCase()}
-              {phase.settings.format === 'png' ? (phase.settings.transparent ? ' · transparent' : ' · opaque') : ` · quality ${Math.round(phase.settings.quality * 100)}%`}
+              {phase.settings.format === 'svg'
+                ? output.vector
+                  ? ' · vector shapes'
+                  : ' · embedded PNG image (not vector)'
+                : phase.settings.format === 'png'
+                  ? phase.settings.transparent
+                    ? ' · transparent'
+                    : ' · opaque'
+                  : ` · quality ${Math.round(phase.settings.quality * 100)}%`}
             </dd>
           </div>
           <div>
@@ -394,7 +426,7 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
         <p className="muted small">
           To recreate this exact image later, save the recipe or keep its JSON. The same recipe, seed, engine version and export settings always render the same
           pixels.{' '}
-          <button type="button" className="link-btn" onClick={() => downloadJson(recipe, `${filename.replace(/\.(png|jpg)$/, '')}.recipe.json`)}>
+          <button type="button" className="link-btn" onClick={() => downloadJson(recipe, `${filename.replace(/\.(png|jpg|svg)$/, '')}.recipe.json`)}>
             Download recipe JSON
           </button>
         </p>
@@ -429,13 +461,13 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
           </div>
         </div>
         <div className="button-row">
-          {(memory || s.width * s.height * s.scale * s.scale > 4_000_000) && (
+          {(memory || s.width * s.height * s.scale * s.scale > 4_000_000) && (!tile || s.scale > 1) && (
             <button
               type="button"
               className="btn btn-secondary btn-small"
               onClick={() => {
                 const smaller = s.scale > 1 ? { ...s, scale: s.scale - 1 } : { ...s, width: Math.round(s.width * 0.7), height: Math.round(s.height * 0.7) };
-                smaller.filename = filenameEdited ? s.filename : defaultExportFilename(recipe.name, smaller);
+                smaller.filename = filenameEdited ? s.filename : defaultExportFilename(recipe.name, smaller, tile);
                 setSettings(smaller);
                 setPhase({ name: 'configure' });
               }}
@@ -447,7 +479,7 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
             type="button"
             className="btn btn-secondary btn-small"
             onClick={() => {
-              const format = s.format === 'png' ? 'jpeg' : 'png';
+              const format = s.format === 'jpeg' ? 'png' : 'jpeg';
               const next = { ...s, format: format as ExportSettings['format'], transparent: false };
               next.filename = sanitizeFilename(s.filename, next.format);
               setSettings(next);
@@ -455,7 +487,7 @@ export function ExportDialog({ recipe, onClose, initialSettings }: ExportDialogP
               setPhase({ name: 'configure' });
             }}
           >
-            Switch to {s.format === 'png' ? 'JPEG' : 'PNG'}
+            Switch to {s.format === 'jpeg' ? 'PNG' : 'JPEG'}
           </button>
         </div>
       </div>

@@ -153,6 +153,21 @@ const PATHS = {
       <path d="M12 3v18" />
     </>
   ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  grid: <path d="M4 4h16v16H4zM4 9.33h16M4 14.67h16M9.33 4v16M14.67 4v16" />,
+  play: <path d="M7 5l12 7-12 7z" />,
+  pause: <path d="M8 5v14M16 5v14" />,
+  film: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4" />
+    </>
+  ),
   lock: (
     <>
       <rect x="5" y="11" width="14" height="10" rx="2" />

@@ -17,6 +17,8 @@ export interface EditorState {
   future: Snapshot[];
   /** Fingerprint of the last loaded/saved content, for unsaved-change detection. */
   baseline: string | null;
+  /** The recipe as last opened or saved, for before/after comparison. */
+  baselineRecipe: Recipe | null;
   /** True once the recipe exists in the local library. */
   persisted: boolean;
   source: RecipeSource | null;
@@ -44,6 +46,7 @@ export const initialEditorState: EditorState = {
   past: [],
   future: [],
   baseline: null,
+  baselineRecipe: null,
   persisted: false,
   source: null,
   lastEdit: null,
@@ -69,6 +72,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selection: validSelection(action.recipe, action.selection ?? defaultSelection(action.recipe)),
         // A restored draft is unsaved work by definition.
         baseline: action.draft ? null : contentFingerprint(action.recipe),
+        baselineRecipe: action.draft ? null : action.recipe,
         persisted: action.persisted,
         source: action.source,
         restoredDraft: action.draft === true,
@@ -145,6 +149,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         past: state.past.map(rebase),
         future: state.future.map(rebase),
         baseline: contentFingerprint(saved),
+        baselineRecipe: saved,
         persisted: true,
         lastEdit: null,
         restoredDraft: false,

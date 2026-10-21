@@ -10,6 +10,8 @@ import { setName, setSeed } from '../../editor/ops';
 import { ImportDialog } from '../ImportDialog';
 import { takePendingExport } from './handoff';
 import { ExportDialog } from './ExportDialog';
+import { AnimationDialog } from './AnimationDialog';
+import { HistoryDialog } from './HistoryDialog';
 import { LayerPanel } from './LayerPanel';
 import { PreviewPane, type PreviewBackground, type Zoom } from './PreviewPane';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -97,9 +99,14 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
   const settings = useSettings();
   const [exportState, setExportState] = useState<{ initial: ExportSettings | null } | null>(null);
   const [variationsOpen, setVariationsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [animationOpen, setAnimationOpen] = useState(false);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [zoom, setZoom] = useState<Zoom>('fit');
   const [background, setBackground] = useState<PreviewBackground>('checker');
+  const [tiling, setTiling] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const canCompare = editor.baselineRecipe !== null;
   const [scale, setScale] = useState(1);
   const [nameDraft, setNameDraft] = useState(recipe.name);
   const [seedText, setSeedText] = useState(String(recipe.seed));
@@ -221,6 +228,8 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
             label="More recipe actions"
             items={[
               { label: 'Save a copy…', icon: 'copy', hint: mac ? '⇧⌘S' : 'Ctrl+Shift+S', onSelect: saveAsCopy },
+              { label: 'Version history…', icon: 'clock', disabled: !editor.persisted, onSelect: () => setHistoryOpen(true) },
+              { label: 'Export animation…', icon: 'film', onSelect: () => setAnimationOpen(true) },
               { label: 'Download recipe JSON', icon: 'file', onSelect: () => downloadJson(recipe, `${slugify(recipe.name)}.recipe.json`) },
               { label: 'Import recipe JSON…', icon: 'upload', onSelect: onImport },
               { label: 'New blank recipe', icon: 'plus', onSelect: openBlank },
@@ -237,7 +246,13 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
         <LayerPanel recipe={recipe} addMenuOpen={addMenuOpen} onAddMenuOpenChange={setAddMenuOpen} />
 
         <div className="editor-center">
-          <PreviewPane recipe={recipe} zoom={zoom} background={background} onAddLayer={() => setAddMenuOpen(true)} onScaleChange={setScale} />
+          <PreviewPane
+            recipe={recipe}
+            zoom={zoom}
+            background={background}
+            tiling={tiling}
+            compareWith={comparing && canCompare ? editor.baselineRecipe : null}
+            onAddLayer={() => setAddMenuOpen(true)} onScaleChange={setScale} />
 
           {variationsOpen && <VariationDrawer recipe={recipe} onClose={() => setVariationsOpen(false)} />}
 
@@ -286,6 +301,27 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
               )}
             </div>
             <div className="bottom-group">
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                aria-pressed={comparing && canCompare}
+                disabled={!canCompare}
+                onClick={() => setComparing((c) => !c)}
+                title={canCompare ? 'Compare with the recipe as last opened or saved' : 'Save first: a restored draft has nothing to compare with'}
+              >
+                <Icon name="compare" />
+                Before/after
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                aria-pressed={tiling}
+                onClick={() => setTiling((t) => !t)}
+                title="Show the texture repeated 3 × 3 to check how it tiles"
+              >
+                <Icon name="grid" />
+                Tile preview
+              </button>
               {recipe.canvas.transparentBackground && (
                 <div className="segmented small" role="radiogroup" aria-label="Preview background">
                   {(['checker', 'light', 'dark'] as const).map((b) => (
@@ -332,6 +368,8 @@ function Editor({ recipe, onImport }: { recipe: Recipe; onImport: () => void }) 
         <PropertiesPanel recipe={recipe} />
       </div>
 
+      {historyOpen && <HistoryDialog recipe={recipe} onClose={() => setHistoryOpen(false)} />}
+      {animationOpen && <AnimationDialog recipe={recipe} onClose={() => setAnimationOpen(false)} />}
       {exportState && <ExportDialog recipe={recipe} initialSettings={exportState.initial} onClose={() => setExportState(null)} />}
     </div>
   );

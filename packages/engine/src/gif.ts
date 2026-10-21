@@ -184,42 +184,90 @@ class ByteWriter {
   }
 }
 
-/** Encode RGBA frames (each width × height × 4 bytes) as a looping GIF. */
-export function encodeGif(frames: readonly Uint8ClampedArray[], options: GifOptions): Uint8Array<ArrayBuffer> {
-  const { width, height } = options;
-  const pixels = width * height;
-  const transparentIndex = options.transparent ? 0 : -1;
-  const colorSlots = options.transparent ? 255 : 256;
+/** A global GIF palette: up to 256 colors, index 0 reserved when transparent. */
+export interface GifPalette {
+  /** 256 × RGB, ready for the global color table. */
+  table: Uint8Array;
+  /** The quantized colors (without the transparent slot). */
+  colors: Uint8Array;
+  transparent: boolean;
+}
 
-  // Sample up to ~60k opaque pixels evenly across all frames.
-  const stride = Math.max(1, Math.floor((pixels * frames.length) / 60000));
+/**
+ * Build one palette for the whole animation from sample frames (any size;
+ * small renders of a few loop positions are enough). Sampling caps at
+ * ~60k pixels.
+ */
+export function buildGifPalette(frames: readonly Uint8ClampedArray[], transparent: boolean): GifPalette {
+  const totalPixels = frames.reduce((n, f) => n + f.length / 4, 0);
+  const stride = Math.max(1, Math.floor(totalPixels / 60000));
   const samples: number[] = [];
   let n = 0;
   for (const f of frames) {
+    const pixels = f.length / 4;
     for (let i = 0; i < pixels; i++, n++) {
       if (n % stride !== 0) continue;
-      if (options.transparent && (f[i * 4 + 3] as number) < 128) continue;
+      if (transparent && (f[i * 4 + 3] as number) < 128) continue;
       samples.push(f[i * 4] as number, f[i * 4 + 1] as number, f[i * 4 + 2] as number);
     }
   }
-  const colors = medianCutPalette(new Uint8Array(samples), colorSlots);
-  const colorCount = colors.length / 3;
-  const palette = new Uint8Array(256 * 3);
-  const offset = options.transparent ? 1 : 0;
-  palette.set(colors, offset * 3);
+  const colors = medianCutPalette(new Uint8Array(samples), transparent ? 255 : 256);
+  const table = new Uint8Array(256 * 3);
+  table.set(colors, transparent ? 3 : 0);
+  return { table, colors, transparent };
+}
 
-  // Nearest palette color per 15-bit color, computed on demand.
-  const cache = new Int16Array(32768).fill(-1);
-  const nearest = (r: number, g: number, b: number) => {
+/**
+ * Streaming GIF writer: frames are quantized and compressed as they are
+ * added, so only one RGBA frame needs to be in memory at a time.
+ */
+export class GifWriter {
+  private readonly w = new ByteWriter();
+  private readonly indices: Uint8Array;
+  private readonly cache = new Int16Array(32768).fill(-1);
+  private frameCount = 0;
+
+  constructor(
+    private readonly options: GifOptions,
+    private readonly palette: GifPalette,
+  ) {
+    const { width, height } = options;
+    this.indices = new Uint8Array(width * height);
+    const w = this.w;
+    w.bytes([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]); // GIF89a
+    w.word(width);
+    w.word(height);
+    w.byte(0xf7); // global color table, 8 bits/channel, 256 entries
+    w.byte(0); // background color index
+    w.byte(0); // pixel aspect
+    w.bytes(palette.table);
+    // Loop forever.
+    w.bytes([0x21, 0xff, 0x0b]);
+    w.bytes([...'NETSCAPE2.0'].map((c) => c.charCodeAt(0)));
+    w.bytes([0x03, 0x01, 0x00, 0x00, 0x00]);
+    if (options.comment) {
+      w.bytes([0x21, 0xfe]);
+      w.blocks(new TextEncoder().encode(options.comment.slice(0, 1000)));
+    }
+  }
+
+  get frames(): number {
+    return this.frameCount;
+  }
+
+  /** Nearest palette index for a color, cached per 15-bit color. */
+  private nearest(r: number, g: number, b: number): number {
     const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
-    const hit = cache[key] as number;
+    const hit = this.cache[key] as number;
     if (hit >= 0) return hit;
+    const { colors, transparent } = this.palette;
+    const count = colors.length / 3;
     const cr = (r & 0xf8) | 4;
     const cg = (g & 0xf8) | 4;
     const cb = (b & 0xf8) | 4;
     let best = 0;
     let bestD = Infinity;
-    for (let i = 0; i < colorCount; i++) {
+    for (let i = 0; i < count; i++) {
       const dr = cr - (colors[i * 3] as number);
       const dg = cg - (colors[i * 3 + 1] as number);
       const db = cb - (colors[i * 3 + 2] as number);
@@ -229,47 +277,35 @@ export function encodeGif(frames: readonly Uint8ClampedArray[], options: GifOpti
         best = i;
       }
     }
-    cache[key] = best + offset;
-    return best + offset;
-  };
-
-  const w = new ByteWriter();
-  w.bytes([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]); // GIF89a
-  w.word(width);
-  w.word(height);
-  w.byte(0xf7); // global color table, 8 bits/channel, 256 entries
-  w.byte(0); // background color index
-  w.byte(0); // pixel aspect
-  w.bytes(palette);
-  // Loop forever.
-  w.bytes([0x21, 0xff, 0x0b]);
-  w.bytes([...'NETSCAPE2.0'].map((c) => c.charCodeAt(0)));
-  w.bytes([0x03, 0x01, 0x00, 0x00, 0x00]);
-  if (options.comment) {
-    w.bytes([0x21, 0xfe]);
-    w.blocks(new TextEncoder().encode(options.comment.slice(0, 1000)));
+    const index = best + (transparent ? 1 : 0);
+    this.cache[key] = index;
+    return index;
   }
 
-  const indices = new Uint8Array(pixels);
-  for (const f of frames) {
+  /** Add an RGBA frame of width × height × 4 bytes. */
+  addFrame(frame: Uint8ClampedArray): void {
+    const { width, height, transparent } = this.options;
+    if (frame.length !== width * height * 4) throw new RangeError('Frame size does not match the GIF size');
+    const indices = this.indices;
     for (let y = 0, i = 0; y < height; y++) {
       for (let x = 0; x < width; x++, i++) {
-        if (transparentIndex >= 0 && (f[i * 4 + 3] as number) < 128) {
-          indices[i] = transparentIndex;
+        if (transparent && (frame[i * 4 + 3] as number) < 128) {
+          indices[i] = 0;
           continue;
         }
         const t = ((BAYER4[(y & 3) * 4 + (x & 3)] as number) - 7.5) * 0.6;
-        const r = Math.max(0, Math.min(255, Math.round((f[i * 4] as number) + t)));
-        const g = Math.max(0, Math.min(255, Math.round((f[i * 4 + 1] as number) + t)));
-        const b = Math.max(0, Math.min(255, Math.round((f[i * 4 + 2] as number) + t)));
-        indices[i] = nearest(r, g, b);
+        const r = Math.max(0, Math.min(255, Math.round((frame[i * 4] as number) + t)));
+        const g = Math.max(0, Math.min(255, Math.round((frame[i * 4 + 1] as number) + t)));
+        const b = Math.max(0, Math.min(255, Math.round((frame[i * 4 + 2] as number) + t)));
+        indices[i] = this.nearest(r, g, b);
       }
     }
+    const w = this.w;
     // Graphic control: delay, disposal (restore to background when transparent).
     w.bytes([0x21, 0xf9, 0x04]);
-    w.byte((options.transparent ? 2 << 2 : 1 << 2) | (options.transparent ? 1 : 0));
-    w.word(Math.max(2, Math.round(options.delayCs)));
-    w.byte(Math.max(0, transparentIndex));
+    w.byte((transparent ? 2 << 2 : 1 << 2) | (transparent ? 1 : 0));
+    w.word(Math.max(2, Math.round(this.options.delayCs)));
+    w.byte(0); // transparent color index (0 when used)
     w.byte(0);
     // Image descriptor (full frame, global palette).
     w.byte(0x2c);
@@ -280,9 +316,21 @@ export function encodeGif(frames: readonly Uint8ClampedArray[], options: GifOpti
     w.byte(0);
     w.byte(8); // LZW minimum code size
     w.blocks(lzwEncode(indices, 8));
+    this.frameCount++;
   }
-  w.byte(0x3b);
-  return w.result();
+
+  /** Finish the file. The writer cannot be used afterwards. */
+  finish(): Uint8Array<ArrayBuffer> {
+    this.w.byte(0x3b);
+    return this.w.result();
+  }
+}
+
+/** Encode RGBA frames (each width × height × 4 bytes) as a looping GIF. */
+export function encodeGif(frames: readonly Uint8ClampedArray[], options: GifOptions): Uint8Array<ArrayBuffer> {
+  const writer = new GifWriter(options, buildGifPalette(frames, options.transparent));
+  for (const f of frames) writer.addFrame(f);
+  return writer.finish();
 }
 
 export const ANIMATION_LIMITS = {

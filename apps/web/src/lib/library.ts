@@ -1,5 +1,6 @@
 import { createId, duplicateRecipe, ENGINE_VERSION, inferFamily, type Recipe } from '@material-lab/engine';
 import { dbClear, dbDelete, dbGetAll, dbPut } from './db';
+import { addVersion, deleteVersions } from './versions';
 import { Observable, useObservable } from './store';
 
 /** A recipe saved on this device. */
@@ -82,7 +83,13 @@ export async function saveRecipe(recipe: Recipe): Promise<LibraryEntry> {
     family: recipe.family === 'custom' ? inferFamily(recipe) : recipe.family,
     metadata: { ...recipe.metadata, updatedAt: now },
   };
-  return put({ recipe: saved, favorite: existing?.favorite ?? false, savedAt: now });
+  const entry = await put({ recipe: saved, favorite: existing?.favorite ?? false, savedAt: now });
+  try {
+    await addVersion(saved, now);
+  } catch {
+    // History is a convenience; the save itself succeeded.
+  }
+  return entry;
 }
 
 export async function renameRecipe(recipeId: string, name: string): Promise<void> {
@@ -107,11 +114,13 @@ export async function duplicateEntry(recipeId: string): Promise<LibraryEntry | u
 
 export async function deleteRecipe(recipeId: string): Promise<void> {
   await dbDelete('recipes', recipeId);
+  await deleteVersions(recipeId).catch(() => undefined);
   setEntries(state.get().entries.filter((e) => e.recipe.recipeId !== recipeId));
 }
 
 export async function clearLibrary(): Promise<void> {
   await dbClear('recipes');
+  await dbClear('versions');
   setEntries([]);
 }
 
