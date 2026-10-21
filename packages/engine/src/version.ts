@@ -3,7 +3,7 @@
  * pixels for an existing recipe (and regenerate the golden hashes), so saved
  * recipes record which engine produced their output.
  */
-export const ENGINE_VERSION = '1.0.0';
+export const ENGINE_VERSION = '1.1.0';
 
 /** Version of the recipe JSON structure. Bump with a migration in migrate.ts. */
 export const SCHEMA_VERSION = 1;

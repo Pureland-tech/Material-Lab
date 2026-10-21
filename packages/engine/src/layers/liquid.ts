@@ -1,5 +1,5 @@
-import { direction, smoothstep } from '../math';
-import { fbm, gradientNoise } from '../noise';
+import { axes, frame, loopOffset, unitFbm } from '../field';
+import { smoothstep } from '../math';
 import type { LayerDefinition } from '../params';
 import { num, pixelGrid, rgb } from './util';
 
@@ -91,37 +91,48 @@ export const liquidLayer: LayerDefinition = {
     },
   ],
   coversCanvas: () => true,
+  seamless: (params) => ({
+    seams: [],
+    notes: num(params, 'flowAngle') % 90 === 0 ? [] : ['Flow direction rounds to the nearest 90° so the tile repeats.'],
+  }),
+  motion: 'Flows around a loop',
   render(ctx, out) {
-    const { width, y0, y1, params, seed } = ctx;
+    const { width, y0, y1, params, seed, tile } = ctx;
+    // Animation: the whole flow field drifts around a circle in noise space.
+    const drift = loopOffset(ctx.time, ctx.motion * 1.5);
     const grid = pixelGrid(width, ctx.height, ctx.pixelRatio);
     const a = rgb(params, 'colorA');
     const b = rgb(params, 'colorB');
     const c = rgb(params, 'colorC');
-    const invScale = 1 / num(params, 'swirlScale');
+    const scale = num(params, 'swirlScale');
     const warp = num(params, 'distortion') * 4;
-    const flow = direction(num(params, 'flowAngle'));
+    const flow = frame(num(params, 'flowAngle'), tile);
     const smoothness = num(params, 'smoothness');
     const octaves = smoothness > 0.66 ? 3 : smoothness > 0.33 ? 4 : 5;
     const gain = 0.62 - smoothness * 0.24;
     const edge = num(params, 'edgeDetail');
     const accent = num(params, 'accent');
     const lineWidth = 0.07;
+    // Stretched along the flow: features are longer along it than across.
+    const ax = axes(flow.tile, scale / 0.55, scale);
+    const noise = unitFbm('gradient', ax, octaves, gain);
+    const d = flow.d;
 
     let i = 0;
     for (let y = y0; y < y1; y++) {
       const ly = (y + 0.5) * grid.inv;
       for (let x = 0; x < width; x++, i += 4) {
         const lx = (x + 0.5) * grid.inv;
-        // Rotate into flow space and stretch along the flow.
-        const px = (lx * flow.x + ly * flow.y) * invScale * 0.55;
-        const py = (-lx * flow.y + ly * flow.x) * invScale;
+        // Rotate into flow space (in noise units).
+        const px = (lx * d.x + ly * d.y) * ax.kx + drift.x;
+        const py = (-lx * d.y + ly * d.x) * ax.ky + drift.y;
 
         // Domain warping: noise displaces the coordinates of more noise.
-        const qx = fbm(gradientNoise, px, py, seed, octaves, gain);
-        const qy = fbm(gradientNoise, px + 5.2, py + 1.3, seed + 1, octaves, gain);
-        const rx = fbm(gradientNoise, px + warp * qx + 1.7, py + warp * qy + 9.2, seed + 2, octaves, gain);
-        const ry = fbm(gradientNoise, px + warp * qx + 8.3, py + warp * qy + 2.8, seed + 3, octaves, gain);
-        const f = fbm(gradientNoise, px + warp * rx, py + warp * ry, seed + 4, octaves, gain);
+        const qx = noise(px, py, seed);
+        const qy = noise(px + 5.2, py + 1.3, seed + 1);
+        const rx = noise(px + warp * qx + 1.7, py + warp * qy + 9.2, seed + 2);
+        const ry = noise(px + warp * qx + 8.3, py + warp * qy + 2.8, seed + 3);
+        const f = noise(px + warp * rx, py + warp * ry, seed + 4);
 
         const t = smoothstep(0.25, 0.75, f);
         let cr = a[0] + (b[0] - a[0]) * t;
@@ -136,8 +147,8 @@ export const liquidLayer: LayerDefinition = {
         if (edge > 0) {
           // Contour lines of the final field give a marbled edge.
           const band = f * 8;
-          const d = Math.abs(band - Math.floor(band) - 0.5);
-          const line = smoothstep(0.5 - lineWidth, 0.5, d) * edge * 0.55;
+          const dd = Math.abs(band - Math.floor(band) - 0.5);
+          const line = smoothstep(0.5 - lineWidth, 0.5, dd) * edge * 0.55;
           cr += (1 - cr) * line;
           cg += (1 - cg) * line;
           cb += (1 - cb) * line;

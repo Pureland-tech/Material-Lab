@@ -1,4 +1,5 @@
 import { hexToRgb } from './color';
+import type { Tile } from './field';
 import { compositeInto } from './compose';
 import { getLayerDefinition } from './layers';
 import type { BelowBuffer, LayerDefinition } from './params';
@@ -32,6 +33,16 @@ export interface RenderOptions {
   rows?: { start: number; end: number };
   /** Override band height (testing). Output does not depend on it. */
   bandRows?: number;
+  /**
+   * Render as a seamless tile. `true` makes the whole output one tile;
+   * an explicit logical size repeats the texture with that period (larger
+   * outputs then contain several repeats).
+   */
+  tile?: boolean | Tile;
+  /** Animation frame: position in the loop, 0–1. Omit for a still image. */
+  time?: number;
+  /** Animation strength, 0–1 (default 0.5). */
+  motion?: number;
   /**
    * Precomputed composite of the first `layerCount` active layers (see
    * renderComposite), so a parallel renderer can render the layers beneath a
@@ -164,16 +175,31 @@ export function renderRecipe(recipe: Recipe, options: RenderOptions): RenderResu
   const rowEnd = options.rows ? Math.min(height, Math.floor(options.rows.end)) : height;
   if (!(rowEnd > rowStart)) throw new RangeError('Empty row range');
   const rowCount = rowEnd - rowStart;
-  const bandRows = Math.max(1, Math.floor(options.bandRows ?? chooseBandRows(layers, width, rowCount)));
+  const hasContext = layers.some((l) => l.needsBelow);
+  // Seamless context layers read the whole image, so one band avoids recomputing it.
+  const bandRows = Math.max(1, Math.floor(options.bandRows ?? (options.tile && hasContext ? rowCount : chooseBandRows(layers, width, rowCount))));
 
   const out = new Uint8ClampedArray(width * rowCount * 4);
-  const geometry: Geometry = { width, height, pixelRatio, pre: options.below ?? null };
+  const tile = resolveTile(options.tile, width, height, pixelRatio);
+  const geometry: Geometry = {
+    width,
+    height,
+    pixelRatio,
+    pre: options.below ?? null,
+    tile,
+    time: options.time ?? null,
+    motion: options.motion ?? 0.5,
+  };
+  // In seamless mode dithering repeats with the tile too.
+  const ditherPeriod = tile
+    ? { x: Math.max(1, Math.round(tile.width * pixelRatio)), y: Math.max(1, Math.round(tile.height * pixelRatio)) }
+    : null;
 
   for (let y0 = rowStart; y0 < rowEnd; y0 += bandRows) {
     if (options.shouldCancel?.()) throw new RenderCancelledError();
     const y1 = Math.min(rowEnd, y0 + bandRows);
     const band = compositeRange(layers, layers.length, y0, y1, geometry);
-    quantizeBand(band, out, width, y0, y1, rowStart, transparent, bg);
+    quantizeBand(band, out, width, y0, y1, rowStart, transparent, bg, ditherPeriod);
     options.onProgress?.((y1 - rowStart) / rowCount);
   }
   return { width, height: rowCount, data: out, warnings };
@@ -184,6 +210,15 @@ interface Geometry {
   height: number;
   pixelRatio: number;
   pre: PrecomputedComposite | null;
+  tile: Tile | null;
+  time: number | null;
+  motion: number;
+}
+
+function resolveTile(tile: boolean | Tile | undefined, width: number, height: number, pixelRatio: number): Tile | null {
+  if (!tile) return null;
+  if (tile === true) return { width: width / pixelRatio, height: height / pixelRatio };
+  return { width: tile.width, height: tile.height };
 }
 
 /** Premultiplied composite of layers [0, end) for rows [y0, y1). */
@@ -213,8 +248,9 @@ function compositeRange(layers: PreparedLayer[], end: number, y0: number, y1: nu
     start = 0;
   } else {
     const layer = layers[split] as PreparedLayer;
-    const ya = Math.max(0, y0 - layer.margin);
-    const yb = Math.min(geo.height, y1 + layer.margin);
+    // Seamless tiles need the full height so context can wrap around edges.
+    const ya = geo.tile ? 0 : Math.max(0, y0 - layer.margin);
+    const yb = geo.tile ? geo.height : Math.min(geo.height, y1 + layer.margin);
     const wide = compositeRange(layers, split, ya, yb, geo);
     const below: BelowBuffer = { data: wide, y0: ya, y1: yb };
     buf = wide.slice((y0 - ya) * width * 4, (y1 - ya) * width * 4);
@@ -244,6 +280,9 @@ function applyLayer(
       seed: layer.seed,
       params: layer.params,
       below,
+      tile: geo.tile,
+      time: geo.time,
+      motion: geo.motion,
     },
     layerOut,
   );
@@ -264,12 +303,13 @@ function quantizeBand(
   outStartRow: number,
   transparent: boolean,
   bg: [number, number, number],
+  ditherPeriod: { x: number; y: number } | null,
 ): void {
   let i = 0;
   let o = (y0 - outStartRow) * width * 4;
   for (let y = y0; y < y1; y++) {
     for (let x = 0; x < width; x++, i += 4, o += 4) {
-      const d = hash01(x, y, DITHER_SEED);
+      const d = ditherPeriod ? hash01(x % ditherPeriod.x, y % ditherPeriod.y, DITHER_SEED) : hash01(x, y, DITHER_SEED);
       let a = band[i + 3] as number;
       if (a > 1) a = 1;
       else if (!(a > 0)) a = 0;
@@ -302,10 +342,27 @@ function quantizeBand(
  */
 export function renderComposite(
   recipe: Recipe,
-  options: { width: number; height: number; pixelRatio: number; rows: { start: number; end: number }; layerCount: number },
+  options: {
+    width: number;
+    height: number;
+    pixelRatio: number;
+    rows: { start: number; end: number };
+    layerCount: number;
+    tile?: boolean | Tile;
+    time?: number;
+    motion?: number;
+  },
 ): Float32Array {
   const { layers } = prepareLayers(recipe, options.pixelRatio);
-  const geometry: Geometry = { width: options.width, height: options.height, pixelRatio: options.pixelRatio, pre: null };
+  const geometry: Geometry = {
+    width: options.width,
+    height: options.height,
+    pixelRatio: options.pixelRatio,
+    pre: null,
+    tile: resolveTile(options.tile, options.width, options.height, options.pixelRatio),
+    time: options.time ?? null,
+    motion: options.motion ?? 0.5,
+  };
   const count = Math.max(0, Math.min(layers.length, options.layerCount));
   return compositeRange(layers, count, options.rows.start, options.rows.end, geometry);
 }
@@ -315,11 +372,19 @@ export function renderComposite(
  * index into the active layers, with its context margin in rows. Null when
  * no such layer exists or nothing is beneath it.
  */
-export function findContextSplit(recipe: Recipe, pixelRatio: number): { layerCount: number; margin: number } | null {
+export function findContextSplit(
+  recipe: Recipe,
+  pixelRatio: number,
+  options: { tile?: boolean; height?: number } = {},
+): { layerCount: number; margin: number } | null {
   const { layers } = prepareLayers(recipe, pixelRatio);
   for (let i = layers.length - 1; i >= 0; i--) {
     const layer = layers[i] as PreparedLayer;
-    if (layer.needsBelow) return i > 0 ? { layerCount: i, margin: layer.margin } : null;
+    if (!layer.needsBelow) continue;
+    if (i === 0) return null;
+    // Seamless tiles read context from the whole image (it wraps around).
+    const margin = options.tile ? Math.max(layer.margin, options.height ?? Number.MAX_SAFE_INTEGER) : layer.margin;
+    return { layerCount: i, margin };
   }
   return null;
 }

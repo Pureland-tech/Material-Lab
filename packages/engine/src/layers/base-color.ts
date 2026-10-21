@@ -47,6 +47,11 @@ export const baseColorLayer: LayerDefinition = {
     },
   ],
   coversCanvas: () => true,
+  seamless: (params) => ({
+    seams: str(params, 'fill') === 'solid' ? [] : ['Gradient fills change across the canvas, so tile edges will not match. Use a solid fill for seamless tiles.'],
+    notes: [],
+  }),
+  makeSeamless: (params) => ({ ...params, fill: 'solid' }),
   render(ctx, out) {
     const { width, y0, y1, params } = ctx;
     const grid = pixelGrid(width, ctx.height, ctx.pixelRatio);

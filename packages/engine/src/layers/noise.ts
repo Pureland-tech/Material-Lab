@@ -1,4 +1,4 @@
-import { cellularNoise, fbm, gradientNoise, ridged, valueNoise, whiteNoise, type NoiseFn } from '../noise';
+import { axes, fbmSampler, loopOffset, ridgedSampler, sampler } from '../field';
 import type { LayerDefinition } from '../params';
 import { bool, num, pixelGrid, rgb, str } from './util';
 
@@ -107,11 +107,17 @@ export const noiseLayer: LayerDefinition = {
     },
   ],
   coversCanvas: (params) => !bool(params, 'alphaOutput'),
+  seamless: () => ({ seams: [], notes: [] }),
+  motion: 'Drifts in a loop (white noise re-rolls each frame)',
   render(ctx, out) {
-    const { width, y0, y1, params, seed } = ctx;
+    const { width, y0, y1, params, seed, tile } = ctx;
     const grid = pixelGrid(width, ctx.height, ctx.pixelRatio);
     const type = str(params, 'noiseType');
-    const invScale = 1 / num(params, 'scale');
+    const scale = num(params, 'scale');
+    const ax = axes(tile, scale);
+    const drift = loopOffset(ctx.time, ctx.motion * scale);
+    // White noise has no structure to drift: animate it by re-rolling per frame.
+    const frameSeed = type === 'white' && ctx.time !== null && ctx.motion > 0 ? (seed ^ Math.round(ctx.time * 1e6)) | 0 : seed;
     const amplitude = num(params, 'amplitude');
     const contrast = 1 + num(params, 'contrast');
     const colorA = rgb(params, 'colorA');
@@ -123,14 +129,14 @@ export const noiseLayer: LayerDefinition = {
 
     let field: (x: number, y: number, s: number) => number;
     if (type === 'white') {
-      field = whiteNoise;
+      field = sampler('white', ax);
     } else if (type === 'ridged') {
-      field = (x, y, s) => ridged(gradientNoise, x, y, s, octaves, gain);
+      field = ridgedSampler('gradient', ax, octaves, gain);
     } else if (type === 'cellular') {
-      field = (x, y, s) => 1 - fbm(cellularNoise, x, y, s, Math.min(octaves, 3), gain);
+      const cells = fbmSampler('cellular', ax, Math.min(octaves, 3), gain);
+      field = (x, y, s) => 1 - cells(x, y, s);
     } else {
-      const fn: NoiseFn = type === 'value' ? valueNoise : gradientNoise;
-      field = (x, y, s) => fbm(fn, x, y, s, octaves, gain);
+      field = fbmSampler(type === 'value' ? 'value' : 'gradient', ax, octaves, gain);
     }
     const shape = (n: number) => {
       let v = (n - 0.5) * contrast * amplitude + 0.5;
@@ -141,18 +147,18 @@ export const noiseLayer: LayerDefinition = {
 
     let i = 0;
     for (let y = y0; y < y1; y++) {
-      const ny = (y + 0.5) * grid.inv * invScale;
+      const ly = (y + 0.5) * grid.inv + drift.y;
       for (let x = 0; x < width; x++, i += 4) {
-        const nx = (x + 0.5) * grid.inv * invScale;
-        const n = shape(field(nx, ny, seed));
+        const lx = (x + 0.5) * grid.inv + drift.x;
+        const n = shape(field(lx, ly, frameSeed));
         if (alphaOutput) {
           out[i] = colorB[0];
           out[i + 1] = colorB[1];
           out[i + 2] = colorB[2];
           out[i + 3] = n;
         } else if (colored) {
-          const ng = shape(field(nx, ny, seed + 101));
-          const nb = shape(field(nx, ny, seed + 202));
+          const ng = shape(field(lx, ly, frameSeed + 101));
+          const nb = shape(field(lx, ly, frameSeed + 202));
           out[i] = colorA[0] + (colorB[0] - colorA[0]) * n;
           out[i + 1] = colorA[1] + (colorB[1] - colorA[1]) * ng;
           out[i + 2] = colorA[2] + (colorB[2] - colorA[2]) * nb;

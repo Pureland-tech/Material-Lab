@@ -7,6 +7,7 @@ import {
   defaultExportSettings,
   EXPORT_LIMITS,
   sanitizeFilename,
+  setSeamless,
   validateExportSettings,
   type ExportSettings,
 } from '../src';
@@ -57,6 +58,15 @@ describe('export settings', () => {
   it('validates dimensions, scale and filename', () => {
     const v = validateExportSettings(sampleRecipe(), settings({ width: 0, height: 10.5, scale: 5, filename: '  ' }));
     expect(v.errors.map((e) => e.field).sort()).toEqual(['filename', 'height', 'scale', 'width']);
+  });
+
+  it('keeps seamless tiles at the canvas size', () => {
+    const recipe = setSeamless(sampleRecipe(), true);
+    const s = defaultExportSettings(recipe);
+    expect(s.filename).toBe('test-paper-tile-320x200.png');
+    expect(validateExportSettings(recipe, s).valid).toBe(true);
+    const v = validateExportSettings(recipe, { ...s, width: 640 });
+    expect(v.errors.some((e) => e.field === 'size' && e.message.includes('Seamless'))).toBe(true);
   });
 
   it('builds safe, meaningful filenames', () => {

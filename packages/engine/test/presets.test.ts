@@ -36,4 +36,15 @@ describe('presets', () => {
     expect(searchPresets('subtle paper').map((p) => p.id)).toContain('paper-modern-white');
     expect(searchPresets('zzz-nothing')).toEqual([]);
   });
+
+  it('filters by style, palette and seamless support', () => {
+    expect(searchPresets('', { style: 'glossy' }).every((p) => p.style === 'glossy')).toBe(true);
+    const dark = searchPresets('', { palette: 'dark' });
+    expect(dark.length).toBeGreaterThan(1);
+    expect(dark.every((p) => p.palette.includes('dark'))).toBe(true);
+    const tiles = searchPresets('', { seamless: true }).map((p) => p.id);
+    expect(tiles).toContain('noise-topo-ridges');
+    expect(tiles).not.toContain('glass-aurora-panel');
+    expect(searchPresets('', { family: 'paper', palette: 'warm' }).map((p) => p.id)).toEqual(['paper-warm-recycled', 'paper-vintage-kraft']);
+  });
 });

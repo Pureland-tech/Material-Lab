@@ -1,5 +1,5 @@
-import { direction, smoothstep, type Direction } from '../math';
-import { fbm, valueNoise } from '../noise';
+import { axes, fbmSampler, frame, sampler, wrapCell, type Axes } from '../field';
+import { smoothstep } from '../math';
 import type { LayerDefinition } from '../params';
 import { hash01, hash2 } from '../random';
 import { num, pixelGrid, rgb } from './util';
@@ -10,9 +10,9 @@ const AGED: [number, number, number] = [1, 0.9, 0.74];
  * Shading for one scale of crumpled paper at (x, y): each Voronoi cell is a
  * facet tilted toward or away from the light, and cell borders are creases.
  */
-function crumple(x: number, y: number, cell: number, seed: number, aa: number): number {
-  const fx = x / cell;
-  const fy = y / cell;
+function crumple(x: number, y: number, ax: Axes, seed: number, aa: number): number {
+  const fx = x * ax.kx;
+  const fy = y * ax.ky;
   const xi = Math.floor(fx);
   const yi = Math.floor(fy);
   let d1 = 1e9;
@@ -22,7 +22,7 @@ function crumple(x: number, y: number, cell: number, seed: number, aa: number): 
     for (let i = -1; i <= 1; i++) {
       const cx = xi + i;
       const cy = yi + j;
-      const h = hash2(cx, cy, seed);
+      const h = hash2(wrapCell(cx, ax.px), wrapCell(cy, ax.py), seed);
       const dx = cx + (h & 0xffff) / 65536 - fx;
       const dy = cy + (h >>> 16) / 65536 - fy;
       const d = dx * dx + dy * dy;
@@ -35,6 +35,7 @@ function crumple(x: number, y: number, cell: number, seed: number, aa: number): 
       }
     }
   }
+  const cell = 0.5 / ax.kx + 0.5 / ax.ky;
   // Approximate distance to the cell border in logical px.
   const edge = (Math.sqrt(d2) - Math.sqrt(d1)) * cell * 0.5;
   const facet = ((id >>> 7) & 0xff) / 255 - 0.5;
@@ -42,6 +43,7 @@ function crumple(x: number, y: number, cell: number, seed: number, aa: number): 
   const nearEdge = 1 - smoothstep(0, cell * 0.12, edge);
   return facet * 0.13 * (1 - nearEdge * 0.4) - crease * 0.07;
 }
+
 const SPECKLE: [number, number, number] = [0.33, 0.29, 0.25];
 
 export const paperLayer: LayerDefinition = {
@@ -177,8 +179,16 @@ export const paperLayer: LayerDefinition = {
     },
   ],
   coversCanvas: () => true,
+  seamless: (params) => {
+    const directional = num(params, 'directionality') >= 1;
+    const angle = num(params, 'fiberAngle');
+    return {
+      seams: [],
+      notes: directional && angle % 90 === 0 ? [] : ['Fibers run only horizontally and vertically so the tile repeats.'],
+    };
+  },
   render(ctx, out) {
-    const { width, y0, y1, params, seed } = ctx;
+    const { width, y0, y1, params, seed, tile } = ctx;
     const grid = pixelGrid(width, ctx.height, ctx.pixelRatio);
     const aa = grid.inv * 0.75;
 
@@ -200,18 +210,36 @@ export const paperLayer: LayerDefinition = {
     const wrinkle = num(params, 'wrinkle');
     const baseAngle = num(params, 'fiberAngle');
 
+    const broad = fbmSampler('value', axes(tile, 180), 3);
+    const mottle = fbmSampler('value', axes(tile, 5), 2);
+    const pulp = sampler('white', axes(tile, 1));
+    const aging = fbmSampler('value', axes(tile, 110), 3);
+
     // Up to three fiber orientations; they converge as directionality rises.
     const spread = 60 * (1 - directionality);
-    const dirs: Direction[] = [0, 1, 2].map((k) => direction(baseAngle + k * spread));
     const weights = [1, 1 - directionality, 1 - directionality];
+    const fibers = [0, 1, 2].map((k) => {
+      const f = frame(baseAngle + k * spread, tile);
+      return {
+        d: f.d,
+        warp: sampler('value', axes(f.tile, 45)),
+        lines: sampler('value', axes(f.tile, cell * stretch, cell)),
+        presence: sampler('value', axes(f.tile, cell * stretch * 1.7, cell * 1.7)),
+        polarity: sampler('value', axes(f.tile, cell * 6, cell * 3)),
+      };
+    });
     const warpAmount = 4 * (1 - directionality * 0.75);
     const presenceLow = 1 - density;
 
-    const speckleCell = 16 * scale;
+    const speckles = axes(tile, 16 * scale);
+    const speckleW = 1 / speckles.kx;
+    const speckleH = 1 / speckles.ky;
     const speckleChance = speckleAmount * 0.55;
     const speckleReach = speckleSize * 1.45 + aa;
 
     const foldCell = 260 * (0.6 + scale * 0.4);
+    const folds = axes(tile, foldCell);
+    const foldsFine = axes(tile, foldCell * 0.45);
 
     let i = 0;
     for (let y = y0; y < y1; y++) {
@@ -221,9 +249,9 @@ export const paperLayer: LayerDefinition = {
 
         // Broad pulp unevenness and fine mottling.
         let shade = 1;
-        shade += (fbm(valueNoise, lx / 180, ly / 180, seed + 3, 3) - 0.5) * roughness * 0.28;
-        shade += (fbm(valueNoise, lx / 5, ly / 5, seed + 5, 2) - 0.5) * roughness * 0.1;
-        shade += (hash01(Math.floor(lx), Math.floor(ly), seed + 9) - 0.5) * (0.015 + roughness * 0.03);
+        shade += (broad(lx, ly, seed + 3) - 0.5) * roughness * 0.28;
+        shade += (mottle(lx, ly, seed + 5) - 0.5) * roughness * 0.1;
+        shade += (pulp(lx, ly, seed + 9) - 0.5) * (0.015 + roughness * 0.03);
 
         // Fibers: thin iso-lines of noise stretched along each orientation.
         let fiber = 0;
@@ -231,20 +259,16 @@ export const paperLayer: LayerDefinition = {
           for (let k = 0; k < 3; k++) {
             const w = weights[k] as number;
             if (w <= 0) continue;
-            const d = dirs[k] as Direction;
-            const a = lx * d.x + ly * d.y;
-            let b = -lx * d.y + ly * d.x;
-            b += (valueNoise(a / 45, b / 45, seed + 11 + k) - 0.5) * warpAmount * cell;
-            const n = valueNoise(a / (cell * stretch), b / cell, seed + 31 + k);
+            const f = fibers[k] as (typeof fibers)[number];
+            const a = lx * f.d.x + ly * f.d.y;
+            let b = -lx * f.d.y + ly * f.d.x;
+            b += (f.warp(a, b, seed + 11 + k) - 0.5) * warpAmount * cell;
+            const n = f.lines(a, b, seed + 31 + k);
             const ridge = 1 - Math.abs(n * 2 - 1);
             const line = smoothstep(0.84, 0.97, ridge);
             if (line <= 0) continue;
-            const presence = smoothstep(
-              presenceLow,
-              presenceLow + 0.3,
-              valueNoise(a / (cell * stretch * 1.7), b / (cell * 1.7), seed + 57 + k),
-            );
-            const polarity = valueNoise(a / (cell * 6), b / (cell * 3), seed + 71 + k) > 0.38 ? 1 : -1.2;
+            const presence = smoothstep(presenceLow, presenceLow + 0.3, f.presence(a, b, seed + 57 + k));
+            const polarity = f.polarity(a, b, seed + 71 + k) > 0.38 ? 1 : -1.2;
             fiber += line * presence * w * polarity;
           }
         }
@@ -253,8 +277,8 @@ export const paperLayer: LayerDefinition = {
         // Crumpled folds: flat-shaded facets (Voronoi cells, two scales)
         // separated by thin crease lines.
         if (wrinkle > 0) {
-          shade += crumple(lx, ly, foldCell, seed + 77, aa) * wrinkle;
-          shade += crumple(lx, ly, foldCell * 0.45, seed + 78, aa) * wrinkle * 0.5;
+          shade += crumple(lx, ly, folds, seed + 77, aa) * wrinkle;
+          shade += crumple(lx, ly, foldsFine, seed + 78, aa) * wrinkle * 0.5;
         }
 
         let r = tone[0] as number;
@@ -263,7 +287,7 @@ export const paperLayer: LayerDefinition = {
 
         // Aging blotches.
         if (warmth > 0) {
-          const blot = smoothstep(0.58, 0.85, fbm(valueNoise, lx / 110, ly / 110, seed + 13, 3)) * warmth * 0.12;
+          const blot = smoothstep(0.58, 0.85, aging(lx, ly, seed + 13)) * warmth * 0.12;
           r -= blot * 0.04;
           g -= blot * 0.12;
           bch -= blot * 0.3;
@@ -275,32 +299,34 @@ export const paperLayer: LayerDefinition = {
 
         // Speckles: sparse dots on a jittered grid.
         if (speckleChance > 0) {
-          const cxf = lx / speckleCell;
-          const cyf = ly / speckleCell;
+          const cxf = lx * speckles.kx;
+          const cyf = ly * speckles.ky;
           const gx = Math.floor(cxf);
           const gy = Math.floor(cyf);
           // Neighbouring cells only matter near this cell's borders.
-          const fx = (cxf - gx) * speckleCell;
-          const fy = (cyf - gy) * speckleCell;
+          const fx = (cxf - gx) * speckleW;
+          const fy = (cyf - gy) * speckleH;
           const xLo = fx < speckleReach ? -1 : 0;
-          const xHi = speckleCell - fx < speckleReach ? 1 : 0;
+          const xHi = speckleW - fx < speckleReach ? 1 : 0;
           const yLo = fy < speckleReach ? -1 : 0;
-          const yHi = speckleCell - fy < speckleReach ? 1 : 0;
+          const yHi = speckleH - fy < speckleReach ? 1 : 0;
           let spot = 0;
           for (let oy = yLo; oy <= yHi; oy++) {
             for (let ox = xLo; ox <= xHi; ox++) {
               const cx = gx + ox;
               const cy = gy + oy;
-              const h = hash2(cx, cy, seed + 91);
+              const hx = wrapCell(cx, speckles.px);
+              const hy = wrapCell(cy, speckles.py);
+              const h = hash2(hx, hy, seed + 91);
               if ((h & 0xffff) / 65536 >= speckleChance) continue;
-              const px = (cx + hash01(cx, cy, seed + 92)) * speckleCell;
-              const py = (cy + hash01(cx, cy, seed + 93)) * speckleCell;
+              const px = (cx + hash01(hx, hy, seed + 92)) * speckleW;
+              const py = (cy + hash01(hx, hy, seed + 93)) * speckleH;
               const radius = speckleSize * (0.45 + (h >>> 16) / 65536);
               const dx = lx - px;
               const dy = ly - py;
               const dist = Math.sqrt(dx * dx + dy * dy);
-              const s = 1 - smoothstep(radius - aa, radius + aa, dist);
-              if (s > spot) spot = s;
+              const sp = 1 - smoothstep(radius - aa, radius + aa, dist);
+              if (sp > spot) spot = sp;
             }
           }
           if (spot > 0) {
